@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "id": "fixture-braces-and-quotes",
+  "name": "表达式里有花括号和引号",
+  "version": "2026.11.16",
+  "views": {
+    "card": {
+      "params": ["results"],
+      "type": "card",
+      "body": [
+        { "type": "text", "value": "{{ {'a': {'b': params.results}}['a'] }}" },
+        { "type": "text", "value": "前缀 {{ 'a }} b' + \"{{\" }} 后缀 {{ params.results }}" },
+        { "type": "text", "value": "{{ [1, 2].map(x, x + 1).exists(y, y == size(params.results)) }}" }
+      ]
+    }
+  }
+}

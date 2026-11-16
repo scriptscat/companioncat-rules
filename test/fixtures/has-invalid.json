@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "id": "fixture-has-invalid",
+  "name": "has() 参数写错",
+  "version": "2026.11.16",
+  "bridges": [{
+    "id": "demo",
+    "from": "choose",
+    "to": "chat",
+    "input": { "messages": [{ "role": "user", "content": "{{ input.question }}" }] },
+    "output": { "choice": "{{ result.text }}" },
+    "check": "{{ has(extractJson(result.text).choice) }}"
+  }]
+}

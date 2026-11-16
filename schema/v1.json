@@ -1,0 +1,672 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/scriptscat/companioncat-rules/main/schema/v1.json",
+  "title": "陪伴猫规则包",
+  "description": "陪伴猫（CompanionCat）规则包格式，第 1 版。字符串里的 {{ }} 按 CEL 求值；字符串整段就是一个 {{ }} 时返回原始值。",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string", "description": "写上本 Schema 的地址，编辑器就能补全和报错。" },
+    "schema": {
+      "description": "规则格式版本，大版本必须是 1。",
+      "anyOf": [
+        { "const": 1 },
+        { "type": "string", "pattern": "^1(\\.[0-9]+){0,2}$" }
+      ]
+    },
+    "id": { "$ref": "#/$defs/id", "description": "规则包 id，例如 official-translate。本地规则用 local。" },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "version": { "type": "string", "minLength": 1, "description": "规则包版本，例如 2026.11.16。" },
+    "homepage": { "type": "string" },
+    "author": { "type": "string" },
+    "contracts": { "type": "array", "items": { "$ref": "#/$defs/contract" }, "description": "新的能力类型。" },
+    "bridges": { "type": "array", "items": { "$ref": "#/$defs/bridge" }, "description": "桥接：把一个契约转成对另一个契约的调用，供引擎的 via 引用。" },
+    "providers": { "type": "array", "items": { "$ref": "#/$defs/provider" }, "description": "引擎。" },
+    "views": {
+      "type": "object",
+      "description": "视图模板，入口用 use / with 引用。",
+      "propertyNames": { "$ref": "#/$defs/id" },
+      "additionalProperties": { "anyOf": [{ "$ref": "#/$defs/viewTemplate" }, { "type": "null" }] }
+    },
+    "features": { "type": "array", "items": { "$ref": "#/$defs/feature" }, "description": "功能。" },
+    "sites": { "type": "array", "items": { "$ref": "#/$defs/site" }, "description": "按网站微调功能的参数。" },
+    "overrides": {
+      "type": "object",
+      "description": "只在本地规则里有效：按完整 id（包id/条目id）修改订阅里的条目。对象逐层合并，数组整个替换，null 表示删除这个字段。",
+      "propertyNames": { "$ref": "#/$defs/itemRef" },
+      "additionalProperties": { "type": "object" }
+    }
+  },
+  "required": ["schema", "id"],
+  "additionalProperties": false,
+
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "key": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "description": "设置项、参数、变量的名字，要能在表达式里写成 settings.名字。" },
+    "ref": {
+      "type": "string",
+      "pattern": "^([a-z0-9][a-z0-9-]*/)?[a-z0-9][a-z0-9-]*$",
+      "description": "条目 id，跨包时写成 包id/条目id。"
+    },
+    "itemRef": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)?$",
+      "description": "完整 id：包id/条目id，入口写成 包id/功能id.入口id。"
+    },
+    "contractId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)*(@[0-9]+)?$",
+      "description": "契约 id。内置契约是 translate、chat、choose；新契约带命名空间和大版本号，例如 weather/current@1。"
+    },
+    "template": {
+      "type": "string",
+      "pattern": "^\\{\\{[\\s\\S]*\\}\\}$",
+      "description": "整段就是一个 {{ }} 的表达式，返回原始值。"
+    },
+    "text": { "type": "string", "description": "文字，可以夹 {{ }} 表达式，结果拼接成字符串。" },
+    "bool": { "anyOf": [{ "type": "boolean" }, { "$ref": "#/$defs/template" }] },
+    "mapping": { "description": "任意 JSON 值，其中的字符串可以写表达式。" },
+    "jsonSchema": { "type": ["object", "boolean"], "description": "一份 JSON Schema（2020-12）。" },
+
+    "errorType": {
+      "description": "错误类型（规格 R6.3）。规则只能使用这些类型，不能新增。",
+      "enum": [
+        "network",
+        "timeout",
+        "auth",
+        "rateLimit",
+        "server",
+        "badInput",
+        "badOutput",
+        "hostUndeclared",
+        "hostUnconfirmed",
+        "missingKey",
+        "disabled"
+      ],
+      "x-titles": {
+        "network": "网络",
+        "timeout": "超时",
+        "auth": "认证（401/403）",
+        "rateLimit": "太频繁（429）",
+        "server": "服务端（5xx）",
+        "badInput": "输入格式不对",
+        "badOutput": "返回格式不对",
+        "hostUndeclared": "域名未声明",
+        "hostUnconfirmed": "域名未确认",
+        "missingKey": "缺 Key",
+        "disabled": "已停用"
+      }
+    },
+
+    "contract": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/contractId" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "input": { "$ref": "#/$defs/jsonSchema" },
+        "output": { "$ref": "#/$defs/jsonSchema" },
+        "bridgeable": { "type": "boolean", "description": "能否用大模型兜底。需要实时数据的契约设为 false。" },
+        "sample": { "description": "样例输入，引擎的「测试」和试运行都用它。" },
+        "view": { "$ref": "#/$defs/component", "description": "默认的结果视图；没写就按输出格式自动生成。" }
+      },
+      "required": ["id", "input", "output"],
+      "additionalProperties": false
+    },
+
+    "bridge": {
+      "type": "object",
+      "description": "把 from 契约的输入映射成 to 契约的输入，调用它，再用 output 映射回来。input 里可用 input、options；output 和 check 里可用 input、result（to 契约的输出）。",
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "from": { "$ref": "#/$defs/contractId", "description": "这个桥接实现的契约。" },
+        "to": { "$ref": "#/$defs/contractId", "description": "实际调用的契约。" },
+        "input": { "$ref": "#/$defs/mapping" },
+        "output": { "$ref": "#/$defs/mapping" },
+        "check": { "$ref": "#/$defs/bool", "description": "检查结果；为 false 时带着 checkMessage 重试一次，还不通过就以 badOutput 失败。" },
+        "checkMessage": { "$ref": "#/$defs/text", "description": "check 不通过时，重试附带的失败原因。" }
+      },
+      "required": ["id", "from", "to", "input", "output"],
+      "additionalProperties": false
+    },
+
+    "inlineBridge": {
+      "type": "object",
+      "properties": {
+        "to": { "$ref": "#/$defs/contractId" },
+        "input": { "$ref": "#/$defs/mapping" },
+        "output": { "$ref": "#/$defs/mapping" },
+        "check": { "$ref": "#/$defs/bool" },
+        "checkMessage": { "$ref": "#/$defs/text" }
+      },
+      "required": ["to", "input", "output"],
+      "additionalProperties": false
+    },
+
+    "secret": {
+      "type": "object",
+      "properties": {
+        "name": { "$ref": "#/$defs/key", "description": "表达式里写成 secret.名字。" },
+        "title": { "type": "string" },
+        "placeholder": { "type": "string" },
+        "helpUrl": { "type": "string", "description": "去哪里申请。" },
+        "helpLabel": { "type": "string", "description": "申请地址的显示名。" }
+      },
+      "required": ["name", "title"],
+      "additionalProperties": false
+    },
+
+    "option": {
+      "type": "object",
+      "description": "引擎的可调参数，表达式里写成 options.名字。继承的引擎可以只写 default。",
+      "properties": {
+        "type": { "enum": ["string", "number", "boolean", "enum"] },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "default": {},
+        "placeholder": { "type": "string" },
+        "options": { "type": "object", "additionalProperties": { "type": "string" }, "description": "enum 的取值：值到显示文字。" },
+        "min": { "type": "number" },
+        "max": { "type": "number" }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "enum" } }, "required": ["type"] }, "then": { "required": ["options"] } }
+      ]
+    },
+
+    "limits": {
+      "type": "object",
+      "properties": {
+        "timeoutMs": { "type": "integer", "minimum": 1 },
+        "retry": {
+          "type": "object",
+          "properties": {
+            "on": { "type": "array", "items": { "$ref": "#/$defs/errorType" }, "uniqueItems": true },
+            "max": { "type": "integer", "minimum": 0, "maximum": 10 }
+          },
+          "required": ["on", "max"],
+          "additionalProperties": false
+        },
+        "concurrency": { "type": "integer", "minimum": 1 },
+        "perMinute": { "type": "integer", "minimum": 1, "description": "每分钟最多调用几次。" }
+      },
+      "additionalProperties": false
+    },
+
+    "request": {
+      "type": "object",
+      "description": "请求一律通过 GM_xmlhttpRequest 发出，目标域名必须在 hosts 里。请求体 json / form / text 最多写一个。",
+      "properties": {
+        "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"], "default": "GET" },
+        "url": { "$ref": "#/$defs/text" },
+        "headers": { "type": "object", "additionalProperties": { "anyOf": [{ "$ref": "#/$defs/text" }, { "type": "null" }] } },
+        "json": { "$ref": "#/$defs/mapping" },
+        "form": { "anyOf": [{ "type": "object" }, { "$ref": "#/$defs/template" }] },
+        "text": { "$ref": "#/$defs/text" }
+      },
+      "required": ["url"],
+      "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          { "required": ["json", "form"] },
+          { "required": ["json", "text"] },
+          { "required": ["form", "text"] }
+        ]
+      }
+    },
+
+    "responseFormat": { "enum": ["json", "text", "sse"], "default": "json" },
+
+    "step": {
+      "type": "object",
+      "description": "前置步骤，比如先取 token。结果写进 steps.<id>。",
+      "properties": {
+        "id": { "$ref": "#/$defs/key" },
+        "request": { "$ref": "#/$defs/request" },
+        "response": { "enum": ["json", "text"], "default": "json" },
+        "output": { "$ref": "#/$defs/mapping", "description": "写进 steps.<id> 的值；不写就是整个响应。" },
+        "cache": { "type": "integer", "minimum": 0, "description": "结果缓存多少秒。" }
+      },
+      "required": ["id", "request"],
+      "additionalProperties": false
+    },
+
+    "httpError": {
+      "type": "object",
+      "description": "按状态码或响应内容识别错误类型，可以覆盖提示文字。",
+      "properties": {
+        "status": {
+          "anyOf": [
+            { "type": "integer", "minimum": 100, "maximum": 599 },
+            { "type": "string", "pattern": "^[1-5]xx$" },
+            { "type": "array", "items": { "type": "integer", "minimum": 100, "maximum": 599 }, "minItems": 1 }
+          ]
+        },
+        "when": { "$ref": "#/$defs/bool", "description": "按响应内容判断，可用 response。" },
+        "type": { "$ref": "#/$defs/errorType" },
+        "message": { "$ref": "#/$defs/text" }
+      },
+      "required": ["type"],
+      "anyOf": [{ "required": ["status"] }, { "required": ["when"] }],
+      "additionalProperties": false
+    },
+
+    "http": {
+      "type": "object",
+      "description": "声明式多步请求。表达式里可用 input、options、secret、steps；output、errors 里还可用 response、stream。",
+      "properties": {
+        "steps": { "type": "array", "items": { "$ref": "#/$defs/step" } },
+        "request": { "$ref": "#/$defs/request" },
+        "response": { "$ref": "#/$defs/responseFormat" },
+        "stream": {
+          "type": "object",
+          "description": "SSE 流式响应：每个事件的 data 按 JSON 解析成 response，delta 算出增量文字，累加到 stream.text。",
+          "properties": {
+            "delta": { "$ref": "#/$defs/text" },
+            "done": { "type": "string", "description": "收到这个 data 时结束，例如 [DONE]。不写就等连接关闭。" }
+          },
+          "required": ["delta"],
+          "additionalProperties": false
+        },
+        "output": { "$ref": "#/$defs/mapping", "description": "把响应映射成契约的输出。" },
+        "errors": { "type": "array", "items": { "$ref": "#/$defs/httpError" } },
+        "batch": {
+          "type": "object",
+          "description": "多条输入怎么拆分。写 join 时把 input.texts 用它拼成一条发出，再把 output.texts[0] 按它拆回多条；maxItems / maxChars 限制每次请求的条数和字数。",
+          "properties": {
+            "maxItems": { "type": "integer", "minimum": 1 },
+            "maxChars": { "type": "integer", "minimum": 1 },
+            "join": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false,
+          "minProperties": 1
+        },
+        "langMap": {
+          "type": "object",
+          "description": "语言代码映射：陪伴猫的代码到服务商的代码，作用于 input.from 和 input.to。",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "required": ["request", "output"],
+      "additionalProperties": false,
+      "allOf": [
+        { "if": { "properties": { "response": { "const": "sse" } }, "required": ["response"] }, "then": { "required": ["stream"] } }
+      ]
+    },
+
+    "implementation": {
+      "type": "object",
+      "description": "契约的一种实现：http、via、builtin 三选一。",
+      "properties": {
+        "when": { "$ref": "#/$defs/bool", "description": "写成数组时，按顺序用第一个 when 为 true（或没写 when）的实现，可用 options。" },
+        "http": { "$ref": "#/$defs/http" },
+        "via": {
+          "description": "转成对另一个契约的调用：写桥接 id（跨包写 包id/桥接id），或直接写一个桥接。",
+          "anyOf": [{ "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/inlineBridge" }]
+        },
+        "builtin": { "type": "string", "minLength": 1, "description": "代码里的适配器名。第一期没有任何适配器。" }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        { "required": ["http"] },
+        { "required": ["via"] },
+        { "required": ["builtin"] }
+      ]
+    },
+
+    "provider": {
+      "type": "object",
+      "description": "引擎。继承时只写不同的字段：对象逐层合并，数组整个替换，null 表示删除这个字段。",
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": ["string", "null"] },
+        "description": { "type": ["string", "null"] },
+        "icon": { "type": ["string", "null"] },
+        "extends": { "$ref": "#/$defs/ref" },
+        "abstract": { "type": ["boolean", "null"], "description": "为 true 的引擎只供继承，不出现在引擎列表里。" },
+        "secrets": {
+          "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/secret" } }, { "type": "null" }],
+          "description": "需要哪些 Key。不写时继承父引擎的，并直接用父引擎已经保存的 Key。"
+        },
+        "options": {
+          "anyOf": [
+            {
+              "type": "object",
+              "propertyNames": { "$ref": "#/$defs/key" },
+              "additionalProperties": { "anyOf": [{ "$ref": "#/$defs/option" }, { "type": "null" }] }
+            },
+            { "type": "null" }
+          ]
+        },
+        "hosts": {
+          "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/text" }, "minItems": 1 }, { "type": "null" }],
+          "description": "会访问哪些域名，可以写表达式，例如 {{ host(options.baseUrl) }}。不在列表里的请求一律拒绝。"
+        },
+        "limits": { "anyOf": [{ "$ref": "#/$defs/limits" }, { "type": "null" }] },
+        "implements": {
+          "anyOf": [
+            {
+              "type": "object",
+              "propertyNames": { "$ref": "#/$defs/contractId" },
+              "additionalProperties": {
+                "anyOf": [
+                  { "$ref": "#/$defs/implementation" },
+                  { "type": "array", "items": { "$ref": "#/$defs/implementation" }, "minItems": 1 },
+                  { "type": "null" }
+                ]
+              }
+            },
+            { "type": "null" }
+          ]
+        }
+      },
+      "required": ["id"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "not": { "required": ["extends"] } },
+          "then": {
+            "required": ["name", "implements"],
+            "properties": {
+              "options": { "additionalProperties": { "required": ["type", "title"] } }
+            }
+          }
+        }
+      ]
+    },
+
+    "setting": {
+      "type": "object",
+      "description": "设置项。值按 规则包 + 功能 + 入口 + 设置项 保存，scope 为 site 的再按网站保存。",
+      "properties": {
+        "type": { "enum": ["boolean", "enum", "language", "engine", "engines", "string", "number"] },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "default": {},
+        "scope": { "enum": ["global", "site"], "default": "global" },
+        "quick": {
+          "description": "在小猫气泡里显示。engines 写 first 时只显示主要用的第一个。",
+          "anyOf": [{ "type": "boolean" }, { "const": "first" }]
+        },
+        "options": { "type": "object", "additionalProperties": { "type": "string" }, "minProperties": 1, "description": "enum 的取值：值到显示文字。" },
+        "capability": { "$ref": "#/$defs/contractId", "description": "engine / engines：只能选实现了这个契约的引擎。" },
+        "max": { "type": "number" },
+        "min": { "type": "number" },
+        "step": { "type": "number" },
+        "placeholder": { "type": "string" }
+      },
+      "required": ["type", "title"],
+      "additionalProperties": false,
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "enum" } } }, "then": { "required": ["options"] } },
+        { "if": { "properties": { "type": { "enum": ["engine", "engines"] } } }, "then": { "required": ["capability"] } },
+        { "if": { "properties": { "type": { "const": "boolean" } } }, "then": { "properties": { "default": { "type": "boolean" } } } },
+        { "if": { "properties": { "type": { "const": "number" } } }, "then": { "properties": { "default": { "type": "number" } } } },
+        { "if": { "properties": { "type": { "enum": ["enum", "language", "engine", "string"] } } }, "then": { "properties": { "default": { "type": "string" } } } },
+        { "if": { "properties": { "type": { "const": "engines" } } }, "then": { "properties": { "default": { "type": "array", "items": { "type": "string" } } } } },
+        { "if": { "properties": { "type": { "not": { "const": "engines" } } } }, "then": { "properties": { "quick": { "type": "boolean" } } } }
+      ]
+    },
+
+    "settings": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/key" },
+      "additionalProperties": { "anyOf": [{ "$ref": "#/$defs/setting" }, { "type": "null" }] }
+    },
+
+    "trigger": {
+      "type": "object",
+      "description": "第一期运行 selection；command、page-load 属于网页对照入口，格式先定下来。",
+      "properties": {
+        "on": { "enum": ["selection", "command", "page-load"] },
+        "enabled": { "$ref": "#/$defs/bool" },
+        "confirm": {
+          "description": "selection：paw 先伸出猫爪，none 直接继续，alt 按住 Alt 才继续。",
+          "anyOf": [{ "enum": ["paw", "none", "alt"] }, { "$ref": "#/$defs/template" }]
+        },
+        "ignoreIn": { "type": "array", "items": { "type": "string" }, "description": "selection：选区在这些元素（CSS 选择器）里时不触发。" },
+        "minLength": { "type": "integer", "minimum": 1 },
+        "maxLength": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string", "description": "command：菜单和气泡里的名字。" },
+        "hotkey": { "type": "string", "description": "command：快捷键，例如 Alt+A。" },
+        "quick": { "type": "boolean", "description": "command：在小猫气泡里显示成按钮。" }
+      },
+      "required": ["on"],
+      "additionalProperties": false,
+      "allOf": [
+        { "if": { "properties": { "on": { "const": "command" } } }, "then": { "required": ["title"] } }
+      ]
+    },
+
+    "runStep": {
+      "type": "object",
+      "description": "set 把值写进 vars；call 调用契约，结果按 as 写进 vars。",
+      "properties": {
+        "set": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/key" },
+          "minProperties": 1
+        },
+        "call": { "$ref": "#/$defs/contractId" },
+        "strategy": { "enum": ["first", "race", "all", "vote"], "default": "first" },
+        "engines": {
+          "description": "引擎 id 列表；不写就用「每种能力先用谁」。",
+          "anyOf": [{ "type": "array", "items": { "type": "string" } }, { "$ref": "#/$defs/template" }]
+        },
+        "input": { "anyOf": [{ "type": "object" }, { "$ref": "#/$defs/template" }] },
+        "stream": { "$ref": "#/$defs/bool" },
+        "batch": { "enum": ["blocks"], "description": "网页对照入口：按段落分批调用。" },
+        "as": { "$ref": "#/$defs/key", "description": "结果写进 vars.<as>。" }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        { "required": ["set"], "not": { "anyOf": [{ "required": ["call"] }, { "required": ["strategy"] }, { "required": ["engines"] }, { "required": ["input"] }, { "required": ["stream"] }, { "required": ["batch"] }, { "required": ["as"] }] } },
+        { "required": ["call", "input"], "not": { "required": ["set"] } }
+      ]
+    },
+
+    "select": {
+      "type": "object",
+      "description": "网页对照入口：选出要翻译的段落，写进 vars.blocks（每项有 text）。",
+      "properties": {
+        "blocks": {
+          "description": "选择器列表，或 auto 自动识别段落。",
+          "anyOf": [{ "const": "auto" }, { "type": "array", "items": { "type": "string" } }, { "$ref": "#/$defs/template" }]
+        },
+        "exclude": { "type": "array", "items": { "type": "string" } },
+        "lazy": { "enum": ["viewport"] },
+        "watch": { "enum": ["mutations"] }
+      },
+      "additionalProperties": false
+    },
+
+    "surface": {
+      "type": "object",
+      "properties": {
+        "type": { "enum": ["near-selection", "bubble", "inline-after"] },
+        "pinnable": { "type": "boolean" },
+        "closeOn": { "type": "array", "items": { "enum": ["escape", "outside-click", "new-selection"] }, "uniqueItems": true },
+        "target": { "enum": ["block"], "description": "inline-after：插在哪个元素后面。" },
+        "hideSource": { "$ref": "#/$defs/bool", "description": "inline-after：隐藏原文。" }
+      },
+      "required": ["type"],
+      "additionalProperties": false
+    },
+
+    "viewUse": {
+      "type": "object",
+      "properties": {
+        "use": { "$ref": "#/$defs/ref", "description": "视图模板 id。" },
+        "with": { "type": "object", "description": "传给模板的参数，模板里写成 params.名字。" }
+      },
+      "required": ["use"],
+      "additionalProperties": false
+    },
+
+    "view": {
+      "if": { "type": "object", "required": ["use"] },
+      "then": { "$ref": "#/$defs/viewUse" },
+      "else": { "$ref": "#/$defs/component" }
+    },
+
+    "present": {
+      "type": "object",
+      "properties": {
+        "surface": { "$ref": "#/$defs/surface" },
+        "view": { "$ref": "#/$defs/view" }
+      },
+      "required": ["surface", "view"],
+      "additionalProperties": false
+    },
+
+    "action": {
+      "type": "object",
+      "description": "动作，只写一个。",
+      "properties": {
+        "copy": { "$ref": "#/$defs/text", "description": "复制到剪贴板。" },
+        "retry": { "$ref": "#/$defs/text", "description": "只重试这个引擎。" },
+        "rerun": {
+          "type": "object",
+          "description": "带着新的 vars 重新执行入口，只对这一张卡片有效。",
+          "properties": { "vars": { "type": "object", "propertyNames": { "$ref": "#/$defs/key" } } },
+          "required": ["vars"],
+          "additionalProperties": false
+        },
+        "open": { "$ref": "#/$defs/text", "description": "打开设置窗口：feature-settings，或 engine:引擎id。" },
+        "surface": { "enum": ["pin", "close"] }
+      },
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1
+    },
+
+    "componentBase": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": ["card", "row", "text", "icon", "icon-button", "button", "select", "spacer", "dots", "result-list"]
+        },
+        "header": { "type": "array", "items": { "$ref": "#/$defs/component" }, "description": "card：表头。" },
+        "body": {
+          "description": "card：主体。",
+          "anyOf": [{ "$ref": "#/$defs/component" }, { "type": "array", "items": { "$ref": "#/$defs/component" } }]
+        },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/component" } },
+        "value": { "$ref": "#/$defs/mapping", "description": "text：文字；select：当前值。" },
+        "tone": { "enum": ["default", "muted", "danger", "success"] },
+        "style": { "$ref": "#/$defs/text", "description": "text：reading、reading-lg、inline-translation 等。" },
+        "name": { "type": "string", "description": "icon：图标名（lucide）。" },
+        "icon": { "type": "string" },
+        "label": { "$ref": "#/$defs/text" },
+        "action": { "$ref": "#/$defs/action" },
+        "options": {
+          "description": "select：值到显示文字，或返回它的表达式。",
+          "anyOf": [{ "type": "object", "additionalProperties": { "type": "string" } }, { "$ref": "#/$defs/template" }]
+        },
+        "onChange": { "$ref": "#/$defs/action", "description": "select：选中后执行，可用 value。" },
+        "from": { "$ref": "#/$defs/template", "description": "result-list：调用结果列表。" },
+        "primary": { "enum": ["first", "none"], "description": "result-list：哪一项是主结果。" },
+        "item": {
+          "type": "object",
+          "description": "result-list：每一项四种状态的视图，可用 item。",
+          "properties": {
+            "ok": { "$ref": "#/$defs/component" },
+            "loading": { "$ref": "#/$defs/component" },
+            "error": { "$ref": "#/$defs/component" },
+            "needKey": { "$ref": "#/$defs/component" }
+          },
+          "additionalProperties": false
+        },
+        "meta": { "type": "array", "items": { "$ref": "#/$defs/text" }, "description": "result-list：成功时显示的附注。" },
+        "itemActions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "icon": { "type": "string" },
+              "label": { "$ref": "#/$defs/text" },
+              "action": { "$ref": "#/$defs/action" }
+            },
+            "required": ["label", "action"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["type"],
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "text" } } }, "then": { "required": ["value"] } },
+        { "if": { "properties": { "type": { "const": "icon" } } }, "then": { "required": ["name"] } },
+        { "if": { "properties": { "type": { "const": "icon-button" } } }, "then": { "required": ["icon", "label", "action"] } },
+        { "if": { "properties": { "type": { "const": "button" } } }, "then": { "required": ["label", "action"] } },
+        { "if": { "properties": { "type": { "const": "select" } } }, "then": { "required": ["value", "options"] } },
+        { "if": { "properties": { "type": { "const": "row" } } }, "then": { "required": ["children"] } },
+        { "if": { "properties": { "type": { "const": "result-list" } } }, "then": { "required": ["from"] } }
+      ]
+    },
+
+    "component": {
+      "$ref": "#/$defs/componentBase",
+      "unevaluatedProperties": false
+    },
+
+    "viewTemplate": {
+      "$ref": "#/$defs/componentBase",
+      "properties": {
+        "params": { "type": "array", "items": { "$ref": "#/$defs/key" }, "uniqueItems": true, "description": "模板参数，模板里写成 params.名字。" },
+        "description": { "type": "string" }
+      },
+      "unevaluatedProperties": false
+    },
+
+    "entry": {
+      "type": "object",
+      "description": "功能的一个入口。",
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "match": { "type": "array", "items": { "type": "string" }, "description": "不写就用功能的 match。" },
+        "settings": { "$ref": "#/$defs/settings" },
+        "triggers": { "type": "array", "items": { "$ref": "#/$defs/trigger" }, "minItems": 1 },
+        "toggle": { "type": "boolean", "description": "再触发一次就撤销（网页对照入口）。" },
+        "select": { "$ref": "#/$defs/select" },
+        "run": { "type": "array", "items": { "$ref": "#/$defs/runStep" }, "minItems": 1 },
+        "present": { "$ref": "#/$defs/present" }
+      },
+      "required": ["id", "name", "triggers", "run", "present"],
+      "additionalProperties": false
+    },
+
+    "feature": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "icon": { "type": "string", "description": "图标名（lucide）。" },
+        "match": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "在哪些网址上生效，例如 *://*/*。" },
+        "exclude": { "type": "array", "items": { "type": "string" } },
+        "settings": { "$ref": "#/$defs/settings", "description": "入口之间共用的设置。" },
+        "entries": { "type": "array", "items": { "$ref": "#/$defs/entry" }, "minItems": 1 }
+      },
+      "required": ["id", "name", "match", "entries"],
+      "additionalProperties": false
+    },
+
+    "site": {
+      "type": "object",
+      "description": "网站规则只调参数，不重写功能。除 match、for 外的字段在表达式里写成 site.名字。",
+      "properties": {
+        "match": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "for": { "$ref": "#/$defs/itemRef", "description": "作用到哪个入口：包id/功能id.入口id。" },
+        "blocks": { "type": "array", "items": { "type": "string" } },
+        "skip": { "$ref": "#/$defs/bool" }
+      },
+      "required": ["match", "for"],
+      "propertyNames": { "$ref": "#/$defs/key" }
+    }
+  }
+}

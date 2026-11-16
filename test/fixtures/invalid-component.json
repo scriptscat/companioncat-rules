@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "fixture-invalid-component",
+  "name": "组件写错",
+  "version": "2026.11.16",
+  "views": {
+    "card": {
+      "params": ["results"],
+      "type": "card",
+      "body": { "type": "text", "value": "{{ params.results }}", "colour": "red" }
+    }
+  }
+}

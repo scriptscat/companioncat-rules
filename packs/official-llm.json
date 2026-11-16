@@ -1,0 +1,323 @@
+{
+  "$schema": "https://raw.githubusercontent.com/scriptscat/companioncat-rules/main/schema/v1.json",
+  "schema": 1,
+  "id": "official-llm",
+  "name": "常见大模型",
+  "description": "translate、chat、choose 三个基础契约，大模型桥接，以及 DeepSeek、智谱 GLM、通义千问、OpenAI、Jev 等引擎。",
+  "version": "2026.11.16",
+  "homepage": "https://github.com/scriptscat/companioncat-rules",
+
+  "contracts": [
+    {
+      "id": "translate",
+      "name": "翻译",
+      "description": "把多条文字翻译成目标语言，返回的条数和输入相同。",
+      "input": {
+        "type": "object",
+        "properties": {
+          "texts": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "from": { "type": "string", "default": "auto" },
+          "to": { "type": "string", "minLength": 1 },
+          "context": { "type": "string" }
+        },
+        "required": ["texts", "to"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "texts": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["texts"]
+      },
+      "bridgeable": true,
+      "sample": { "texts": ["Hello, world"], "to": "zh-CN" }
+    },
+    {
+      "id": "chat",
+      "name": "对话",
+      "description": "给一组消息，返回一段回复。",
+      "input": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": { "enum": ["system", "user", "assistant"] },
+                "content": { "type": "string" }
+              },
+              "required": ["role", "content"]
+            }
+          }
+        },
+        "required": ["messages"]
+      },
+      "output": {
+        "type": "object",
+        "properties": { "text": { "type": "string" } },
+        "required": ["text"]
+      },
+      "bridgeable": false,
+      "sample": { "messages": [{ "role": "user", "content": "用一句话介绍你自己。" }] }
+    },
+    {
+      "id": "choose",
+      "name": "选择",
+      "description": "根据状态回答一个选择题，返回选中的选项 id 和置信度。",
+      "input": {
+        "type": "object",
+        "properties": {
+          "state": {},
+          "question": { "type": "string", "minLength": 1 },
+          "options": {
+            "type": "object",
+            "description": "选项 id 到说明。",
+            "additionalProperties": { "type": "string" },
+            "minProperties": 2
+          }
+        },
+        "required": ["state", "question", "options"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "choice": { "type": "string" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        },
+        "required": ["choice", "confidence"]
+      },
+      "bridgeable": true,
+      "sample": {
+        "state": { "button": "Skip Ad ▸", "page": "视频播放页" },
+        "question": "这个按钮是不是跳过广告的按钮？",
+        "options": { "yes": "是", "no": "不是" }
+      }
+    }
+  ],
+
+  "bridges": [
+    {
+      "id": "llm-translate",
+      "name": "大模型翻译",
+      "description": "把 translate 转成一次 chat：要求大模型只输出和输入条数相同的 JSON 字符串数组。",
+      "from": "translate",
+      "to": "chat",
+      "input": {
+        "messages": [
+          {
+            "role": "system",
+            "content": "你是翻译引擎。把用户给出的 JSON 字符串数组里的每一条{{ has(input.from) && input.from != 'auto' ? '从' + langName(input.from) : '' }}翻译成{{ langName(input.to) }}，保持条数和顺序不变。只输出一个 JSON 字符串数组，不要任何解释。{{ has(input.context) && input.context != '' ? '这些文字出自下面这段上下文，供参考：' + input.context : '' }}"
+          },
+          { "role": "user", "content": "{{ json(input.texts) }}" }
+        ]
+      },
+      "output": { "texts": "{{ extractJson(result.text) }}" },
+      "check": "{{ size(extractJson(result.text)) == size(input.texts) }}",
+      "checkMessage": "上一次的回答不是和输入条数相同的 JSON 字符串数组，请只输出这个数组。"
+    },
+    {
+      "id": "llm-choose",
+      "name": "大模型选择",
+      "description": "把 choose 转成一次 chat：要求大模型只输出带 choice 和 confidence 的 JSON 对象。",
+      "from": "choose",
+      "to": "chat",
+      "input": {
+        "messages": [
+          {
+            "role": "system",
+            "content": "你要根据给出的状态回答一个选择题。只输出一个 JSON 对象，包含 choice（选中的选项 id，必须是给出的选项之一）和 confidence（0 到 1 之间的数字，表示你有多确定），不要任何解释。"
+          },
+          {
+            "role": "user",
+            "content": "状态：{{ json(input.state) }}\n问题：{{ input.question }}\n选项（id 到说明）：{{ json(input.options) }}"
+          }
+        ]
+      },
+      "output": {
+        "choice": "{{ extractJson(result.text).choice }}",
+        "confidence": "{{ extractJson(result.text).confidence }}"
+      },
+      "check": "{{ 'choice' in extractJson(result.text) && 'confidence' in extractJson(result.text) && extractJson(result.text).choice in input.options }}",
+      "checkMessage": "上一次的回答不是合法的 JSON 对象，或者 choice 不在给出的选项里。"
+    }
+  ],
+
+  "providers": [
+    {
+      "id": "openai-compatible",
+      "name": "OpenAI 兼容",
+      "description": "兼容 OpenAI 接口的大模型服务，支持 Chat Completions 和 Responses 两种接口",
+      "abstract": true,
+      "secrets": [{ "name": "apiKey", "title": "API Key", "placeholder": "sk-…" }],
+      "options": {
+        "baseUrl": { "type": "string", "title": "接口地址", "placeholder": "https://…/v1" },
+        "model": { "type": "string", "title": "使用的模型" },
+        "api": {
+          "type": "enum",
+          "title": "接口格式",
+          "default": "chat",
+          "options": { "chat": "Chat Completions", "responses": "Responses" }
+        }
+      },
+      "hosts": ["{{ host(options.baseUrl) }}"],
+      "limits": {
+        "timeoutMs": 60000,
+        "retry": { "on": ["network", "timeout", "rateLimit", "server"], "max": 2 },
+        "concurrency": 4
+      },
+      "implements": {
+        "chat": [
+          {
+            "when": "{{ options.api == 'responses' }}",
+            "http": {
+              "request": {
+                "method": "POST",
+                "url": "{{ options.baseUrl }}/responses",
+                "headers": { "Authorization": "Bearer {{ secret.apiKey }}" },
+                "json": { "model": "{{ options.model }}", "input": "{{ input.messages }}", "stream": true }
+              },
+              "response": "sse",
+              "stream": {
+                "delta": "{{ has(response.type) && response.type == 'response.output_text.delta' ? response.delta : '' }}"
+              },
+              "output": { "text": "{{ stream.text }}" },
+              "errors": [
+                { "status": [401, 403], "type": "auth", "message": "这个 Key 无效或已过期" },
+                { "status": 429, "type": "rateLimit", "message": "请求太频繁，或者账户额度用完了" },
+                { "status": "5xx", "type": "server", "message": "服务商暂时出错了" }
+              ]
+            }
+          },
+          {
+            "http": {
+              "request": {
+                "method": "POST",
+                "url": "{{ options.baseUrl }}/chat/completions",
+                "headers": { "Authorization": "Bearer {{ secret.apiKey }}" },
+                "json": { "model": "{{ options.model }}", "messages": "{{ input.messages }}", "stream": true }
+              },
+              "response": "sse",
+              "stream": {
+                "delta": "{{ has(response.choices) && size(response.choices) > 0 && 'content' in response.choices[0].delta && response.choices[0].delta.content != null ? response.choices[0].delta.content : '' }}",
+                "done": "[DONE]"
+              },
+              "output": { "text": "{{ stream.text }}" },
+              "errors": [
+                { "status": [401, 403], "type": "auth", "message": "这个 Key 无效或已过期" },
+                { "status": 429, "type": "rateLimit", "message": "请求太频繁，或者账户额度用完了" },
+                { "status": "5xx", "type": "server", "message": "服务商暂时出错了" }
+              ]
+            }
+          }
+        ],
+        "translate": { "via": "llm-translate" },
+        "choose": { "via": "llm-choose" }
+      }
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "description": "深度求索的大模型",
+      "extends": "openai-compatible",
+      "abstract": false,
+      "secrets": [
+        { "name": "apiKey", "title": "API Key", "placeholder": "sk-…", "helpUrl": "https://platform.deepseek.com/api_keys", "helpLabel": "DeepSeek 开放平台" }
+      ],
+      "options": {
+        "baseUrl": { "default": "https://api.deepseek.com/v1" },
+        "model": { "default": "deepseek-chat" }
+      }
+    },
+    {
+      "id": "glm",
+      "name": "智谱 GLM",
+      "description": "智谱 AI 的大模型，glm-4-flash 可以免费使用",
+      "extends": "openai-compatible",
+      "abstract": false,
+      "secrets": [
+        { "name": "apiKey", "title": "API Key", "helpUrl": "https://open.bigmodel.cn/usercenter/apikeys", "helpLabel": "智谱 AI 开放平台" }
+      ],
+      "options": {
+        "baseUrl": { "default": "https://open.bigmodel.cn/api/paas/v4" },
+        "model": { "default": "glm-4-flash" }
+      }
+    },
+    {
+      "id": "qwen",
+      "name": "通义千问",
+      "description": "阿里云百炼的通义千问大模型",
+      "extends": "openai-compatible",
+      "abstract": false,
+      "secrets": [
+        { "name": "apiKey", "title": "API Key", "placeholder": "sk-…", "helpUrl": "https://bailian.console.aliyun.com/?apiKey=1", "helpLabel": "阿里云百炼" }
+      ],
+      "options": {
+        "baseUrl": { "default": "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+        "model": { "default": "qwen-plus" }
+      }
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "description": "OpenAI 的 GPT 系列模型，默认走 Responses 接口",
+      "extends": "openai-compatible",
+      "abstract": false,
+      "secrets": [
+        { "name": "apiKey", "title": "API Key", "placeholder": "sk-…", "helpUrl": "https://platform.openai.com/api-keys", "helpLabel": "OpenAI Platform" }
+      ],
+      "options": {
+        "baseUrl": { "default": "https://api.openai.com/v1" },
+        "model": { "default": "gpt-4o-mini" },
+        "api": { "default": "responses" }
+      }
+    },
+    {
+      "id": "jev",
+      "name": "Jev",
+      "description": "TypeSafe 的判断模型，回答选择题并自带置信度。目前在早期体验阶段，需要申请。",
+      "secrets": [
+        { "name": "apiKey", "title": "API Key", "helpUrl": "https://console.typesafe.ai", "helpLabel": "TypeSafe 控制台" }
+      ],
+      "options": {
+        "model": { "type": "string", "title": "使用的模型", "default": "jev-latest" }
+      },
+      "hosts": ["api.typesafe.ai"],
+      "limits": {
+        "timeoutMs": 15000,
+        "retry": { "on": ["network", "timeout", "rateLimit", "server"], "max": 1 },
+        "concurrency": 2
+      },
+      "implements": {
+        "choose": {
+          "http": {
+            "request": {
+              "method": "POST",
+              "url": "https://api.typesafe.ai/v1/systemone",
+              "headers": { "Authorization": "Bearer {{ secret.apiKey }}" },
+              "json": {
+                "model": "{{ options.model }}",
+                "state": "{{ input.state }}",
+                "questions": {
+                  "choice": { "type": "noul", "instructions": "{{ input.question }}", "criteria": "{{ input.options }}" }
+                }
+              }
+            },
+            "response": "json",
+            "output": {
+              "choice": "{{ response.answers.choice.answer }}",
+              "confidence": "{{ response.answers.choice.probability }}"
+            },
+            "errors": [
+              { "status": [401, 403], "type": "auth", "message": "这个 Key 无效或已过期" },
+              { "status": 429, "type": "rateLimit", "message": "请求太频繁，稍后再试" },
+              { "status": "5xx", "type": "server", "message": "Jev 暂时出错了" },
+              { "when": "{{ !has(response.answers) || !has(response.answers.choice) }}", "type": "badOutput", "message": "Jev 没有回答这个问题" }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

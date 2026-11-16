@@ -1,0 +1,261 @@
+{
+  "$schema": "https://raw.githubusercontent.com/scriptscat/companioncat-rules/main/schema/v1.json",
+  "schema": 1,
+  "id": "official-translate",
+  "name": "翻译",
+  "description": "划词翻译和网页对照翻译，附带 Google、微软两个免 Key 的翻译引擎。",
+  "version": "2026.11.16",
+  "homepage": "https://github.com/scriptscat/companioncat-rules",
+
+  "providers": [
+    {
+      "id": "google",
+      "name": "Google 翻译",
+      "description": "免费接口，不用填 Key",
+      "icon": "languages",
+      "hosts": ["translate.googleapis.com"],
+      "limits": {
+        "timeoutMs": 10000,
+        "retry": { "on": ["network", "timeout", "server"], "max": 1 },
+        "concurrency": 4,
+        "perMinute": 60
+      },
+      "implements": {
+        "translate": {
+          "http": {
+            "batch": { "join": "\n", "maxChars": 4000 },
+            "request": {
+              "method": "GET",
+              "url": "https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl={{ has(input.from) ? input.from : 'auto' }}&tl={{ input.to }}&q={{ urlencode(input.texts[0]) }}"
+            },
+            "response": "json",
+            "output": {
+              "texts": "{{ [join(response[0].filter(s, s[0] != null).map(s, s[0]), '')] }}"
+            },
+            "errors": [
+              { "status": 429, "type": "rateLimit", "message": "Google 翻译暂时限制了访问，过一会儿再试" },
+              { "status": "5xx", "type": "server", "message": "Google 翻译暂时出错了" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "microsoft",
+      "name": "微软翻译",
+      "description": "免费接口，不用填 Key；每次先取一个临时 token",
+      "icon": "languages",
+      "hosts": ["edge.microsoft.com", "api-cognitive.microsofttranslator.com"],
+      "limits": {
+        "timeoutMs": 10000,
+        "retry": { "on": ["network", "timeout", "server"], "max": 1 },
+        "concurrency": 4,
+        "perMinute": 60
+      },
+      "implements": {
+        "translate": {
+          "http": {
+            "langMap": { "auto": "", "zh-CN": "zh-Hans", "zh-TW": "zh-Hant" },
+            "batch": { "maxItems": 100, "maxChars": 10000 },
+            "steps": [
+              {
+                "id": "token",
+                "request": { "method": "GET", "url": "https://edge.microsoft.com/translate/auth" },
+                "response": "text",
+                "output": "{{ response }}",
+                "cache": 600
+              }
+            ],
+            "request": {
+              "method": "POST",
+              "url": "https://api-cognitive.microsofttranslator.com/translate?api-version=3.0&to={{ input.to }}{{ has(input.from) && input.from != '' ? '&from=' + input.from : '' }}",
+              "headers": { "Authorization": "Bearer {{ steps.token }}" },
+              "json": "{{ input.texts.map(t, {'Text': t}) }}"
+            },
+            "response": "json",
+            "output": {
+              "texts": "{{ response.map(r, r.translations[0].text) }}"
+            },
+            "errors": [
+              { "status": 401, "type": "auth", "message": "微软翻译的临时 token 失效了" },
+              { "status": 429, "type": "rateLimit", "message": "微软翻译暂时限制了访问，过一会儿再试" },
+              { "status": "5xx", "type": "server", "message": "微软翻译暂时出错了" }
+            ]
+          }
+        }
+      }
+    }
+  ],
+
+  "views": {
+    "translation-card": {
+      "description": "翻译结果卡片：表头可以临时换目标语言，下面按引擎逐个列出译文。",
+      "params": ["results", "from", "to"],
+      "type": "card",
+      "header": [
+        { "type": "text", "tone": "muted", "value": "{{ langName(params.from) }}" },
+        { "type": "icon", "name": "arrow-right" },
+        {
+          "type": "select",
+          "value": "{{ params.to }}",
+          "options": "{{ languages() }}",
+          "onChange": { "rerun": { "vars": { "to": "{{ value }}" } } }
+        },
+        { "type": "spacer" },
+        { "type": "icon-button", "icon": "pin", "label": "固定", "action": { "surface": "pin" } },
+        { "type": "icon-button", "icon": "x", "label": "关闭", "action": { "surface": "close" } }
+      ],
+      "body": {
+        "type": "result-list",
+        "from": "{{ params.results }}",
+        "primary": "first",
+        "item": {
+          "ok": {
+            "type": "text",
+            "value": "{{ item.output.texts[0] }}",
+            "style": "{{ item.primary ? 'reading-lg' : 'reading' }}"
+          },
+          "loading": { "type": "dots" },
+          "error": {
+            "type": "row",
+            "children": [
+              { "type": "text", "tone": "danger", "value": "{{ item.error.message }}" },
+              { "type": "button", "label": "重试", "action": { "retry": "{{ item.engine }}" } }
+            ]
+          },
+          "needKey": {
+            "type": "row",
+            "children": [
+              { "type": "text", "tone": "muted", "value": "还没填 API Key" },
+              { "type": "button", "label": "填 Key", "action": { "open": "engine:{{ item.engine }}" } }
+            ]
+          }
+        },
+        "meta": ["{{ item.engineName }}", "{{ item.cached ? '刚才翻译过，直接用了缓存' : '' }}"],
+        "itemActions": [
+          { "icon": "copy", "label": "复制译文", "action": { "copy": "{{ item.output.texts[0] }}" } }
+        ]
+      }
+    }
+  },
+
+  "features": [
+    {
+      "id": "translate",
+      "name": "翻译",
+      "description": "选中文字就能翻译；以后还能把整个网页对照翻译。",
+      "icon": "languages",
+      "match": ["*://*/*"],
+      "settings": {
+        "to": { "type": "language", "title": "翻译成", "default": "zh-CN", "quick": true },
+        "swapIfSame": {
+          "type": "boolean",
+          "title": "中英互译",
+          "description": "选中的文字已经是目标语言时，改为翻译成英文（目标是英文时翻译成简体中文）。",
+          "default": true
+        }
+      },
+      "entries": [
+        {
+          "id": "selection",
+          "name": "划词翻译",
+          "settings": {
+            "siteEnabled": { "type": "boolean", "title": "在这个网站划词翻译", "scope": "site", "default": true, "quick": true },
+            "confirm": {
+              "type": "enum",
+              "title": "选中文字后",
+              "default": "paw",
+              "options": { "paw": "先伸出猫爪", "none": "直接翻译", "alt": "按住 Alt 才翻译" }
+            },
+            "engines": {
+              "type": "engines",
+              "capability": "translate",
+              "title": "卡片里显示哪些引擎",
+              "default": ["official-translate/google", "official-translate/microsoft"],
+              "max": 4,
+              "quick": "first"
+            }
+          },
+          "triggers": [
+            {
+              "on": "selection",
+              "enabled": "{{ settings.siteEnabled }}",
+              "confirm": "{{ settings.confirm }}",
+              "ignoreIn": ["input", "textarea", "[contenteditable]"],
+              "minLength": 1,
+              "maxLength": 5000
+            }
+          ],
+          "run": [
+            {
+              "set": {
+                "to": "{{ settings.swapIfSame && selection.lang == settings.to ? (settings.to == 'en' ? 'zh-CN' : 'en') : settings.to }}"
+              }
+            },
+            {
+              "call": "translate",
+              "strategy": "all",
+              "engines": "{{ settings.engines }}",
+              "stream": true,
+              "input": { "texts": ["{{ selection.text }}"], "to": "{{ vars.to }}", "context": "{{ selection.sentence }}" },
+              "as": "results"
+            }
+          ],
+          "present": {
+            "surface": { "type": "near-selection", "pinnable": true, "closeOn": ["escape", "outside-click", "new-selection"] },
+            "view": {
+              "use": "translation-card",
+              "with": { "results": "{{ vars.results }}", "from": "{{ selection.lang }}", "to": "{{ vars.to }}" }
+            }
+          }
+        },
+        {
+          "id": "page",
+          "name": "网页对照翻译",
+          "settings": {
+            "auto": { "type": "boolean", "title": "打开这个网站时自动对照", "scope": "site", "default": false },
+            "show": {
+              "type": "enum",
+              "title": "显示方式",
+              "default": "both",
+              "quick": true,
+              "options": { "both": "原文下面显示译文", "only": "只看译文" }
+            },
+            "engine": {
+              "type": "engine",
+              "capability": "translate",
+              "title": "用哪个引擎",
+              "description": "整页翻译字数多，建议用免费的引擎。",
+              "default": "official-translate/microsoft"
+            }
+          },
+          "triggers": [
+            { "on": "command", "title": "对照翻译这个网页", "hotkey": "Alt+A", "quick": true },
+            { "on": "page-load", "enabled": "{{ settings.auto }}" }
+          ],
+          "toggle": true,
+          "select": {
+            "blocks": "{{ has(site.blocks) ? site.blocks : 'auto' }}",
+            "exclude": ["pre", "code", "nav", "[translate=no]"],
+            "lazy": "viewport",
+            "watch": "mutations"
+          },
+          "run": [
+            {
+              "call": "translate",
+              "strategy": "first",
+              "engines": ["{{ settings.engine }}"],
+              "batch": "blocks",
+              "input": { "texts": "{{ vars.blocks.map(b, b.text) }}", "to": "{{ settings.to }}" },
+              "as": "results"
+            }
+          ],
+          "present": {
+            "surface": { "type": "inline-after", "target": "block", "hideSource": "{{ settings.show == 'only' }}" },
+            "view": { "type": "text", "style": "inline-translation", "value": "{{ result.output.texts[0] }}" }
+          }
+        }
+      ]
+    }
+  ]
+}

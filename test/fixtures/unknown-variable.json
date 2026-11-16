@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "id": "fixture-unknown-variable",
+  "name": "用了不存在的变量",
+  "version": "2026.11.16",
+  "features": [{
+    "id": "demo",
+    "name": "示例",
+    "match": ["*://*/*"],
+    "entries": [{
+      "id": "selection",
+      "name": "划词",
+      "triggers": [{ "on": "selection" }],
+      "run": [{ "call": "translate", "input": { "texts": "{{ blocks.map(b, b.text) }}", "to": "en" }, "as": "results" }],
+      "present": { "surface": { "type": "near-selection" }, "view": { "use": "card", "with": { "results": "{{ results }}" } } }
+    }]
+  }]
+}

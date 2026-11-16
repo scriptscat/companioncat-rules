@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "id": "fixture-valid",
+  "name": "最小可用规则包",
+  "version": "2026.11.16",
+  "features": [{
+    "id": "demo",
+    "name": "示例",
+    "match": ["*://*/*"],
+    "entries": [{
+      "id": "selection",
+      "name": "划词",
+      "triggers": [{ "on": "selection", "enabled": "{{ settings.on }}" }],
+      "run": [{ "set": { "to": "{{ settings.to == 'en' ? 'zh-CN' : 'en' }}" } }],
+      "present": { "surface": { "type": "near-selection" }, "view": { "type": "text", "value": "{{ vars.to }}" } }
+    }]
+  }]
+}

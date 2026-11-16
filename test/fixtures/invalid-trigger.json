@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "id": "fixture-invalid-trigger",
+  "name": "触发器写错",
+  "version": "2026.11.16",
+  "features": [{
+    "id": "demo",
+    "name": "示例",
+    "match": ["*://*/*"],
+    "entries": [{
+      "id": "selection",
+      "name": "划词",
+      "triggers": [{ "on": "hover" }],
+      "run": [{ "set": { "to": "en" } }],
+      "present": { "surface": { "type": "near-selection" }, "view": { "type": "text", "value": "{{ vars.to }}" } }
+    }]
+  }]
+}

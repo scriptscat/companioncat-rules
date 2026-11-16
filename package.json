@@ -1,0 +1,14 @@
+{
+  "name": "companioncat-rules",
+  "private": true,
+  "type": "module",
+  "description": "Official rule packs and the rule JSON Schema for CompanionCat",
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "test": "node --test 'scripts/*.test.mjs'"
+  },
+  "dependencies": {
+    "@cfworker/json-schema": "4.1.6",
+    "@marcbachmann/cel-js": "8.0.0"
+  }
+}

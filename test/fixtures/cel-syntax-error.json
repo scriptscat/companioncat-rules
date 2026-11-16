@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "id": "fixture-cel-syntax-error",
+  "name": "表达式写错",
+  "version": "2026.11.16",
+  "features": [{
+    "id": "demo",
+    "name": "示例",
+    "match": ["*://*/*"],
+    "entries": [{
+      "id": "selection",
+      "name": "划词",
+      "triggers": [{ "on": "selection" }],
+      "run": [{ "set": { "to": "{{ settings.swapIfSame && selection.lang == }}" } }],
+      "present": { "surface": { "type": "near-selection" }, "view": { "type": "text", "value": "译文：{{ vars.to }}" } }
+    }]
+  }]
+}

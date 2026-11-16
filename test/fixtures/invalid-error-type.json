@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "id": "fixture-invalid-error-type",
+  "name": "错误类型写错",
+  "version": "2026.11.16",
+  "providers": [{
+    "id": "demo",
+    "name": "示例引擎",
+    "hosts": ["example.com"],
+    "limits": { "retry": { "on": ["network", "quota"], "max": 1 } },
+    "implements": {
+      "translate": { "http": {
+        "request": { "method": "GET", "url": "https://example.com/t?q={{ urlencode(input.texts[0]) }}" },
+        "output": { "texts": "{{ [response.text] }}" }
+      } }
+    }
+  }]
+}
