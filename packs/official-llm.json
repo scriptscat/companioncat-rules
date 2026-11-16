@@ -300,14 +300,14 @@
                 "model": "{{ options.model }}",
                 "state": "{{ input.state }}",
                 "questions": {
-                  "choice": { "type": "noul", "instructions": "{{ input.question }}", "criteria": "{{ input.options }}" }
+                  "choice": { "type": "choice", "instructions": "{{ input.question }}", "criteria": "{{ input.options }}" }
                 }
               }
             },
             "response": "json",
             "output": {
-              "choice": "{{ response.answers.choice.answer }}",
-              "confidence": "{{ response.answers.choice.probability }}"
+              "choice": "{{ response.answers.choice.choice }}",
+              "confidence": "{{ response.answers.choice.confidence }}"
             },
             "errors": [
               { "status": [401, 403], "type": "auth", "message": "这个 Key 无效或已过期" },
