@@ -4,7 +4,7 @@
   "id": "official-translate",
   "name": "翻译",
   "description": "划词翻译和网页对照翻译，附带 Google、微软两个免 Key 的翻译引擎。",
-  "version": "2026.11.17.2",
+  "version": "2026.11.17.3",
   "homepage": "https://github.com/scriptscat/companioncat-rules",
 
   "providers": [
@@ -45,7 +45,7 @@
       "name": "微软翻译",
       "description": "必应网页翻译接口，不用填 Key；先从翻译页面取临时 token，缓存 10 分钟",
       "icon": "languages",
-      "hosts": ["www.bing.com"],
+      "hosts": ["www.bing.com", "cn.bing.com"],
       "limits": {
         "timeoutMs": 10000,
         "retry": { "on": ["network", "timeout", "server"], "max": 1 },
@@ -72,7 +72,7 @@
             ],
             "request": {
               "method": "POST",
-              "url": "https://www.bing.com/ttranslatev3?isVertical=1&IG={{ steps.page.ig }}&IID=translator.5028",
+              "url": "https://{{ landed.page.host }}/ttranslatev3?isVertical=1&IG={{ steps.page.ig }}&IID=translator.5028",
               "form": {
                 "fromLang": "{{ has(input.from) && input.from != '' ? input.from : 'auto-detect' }}",
                 "to": "{{ input.to }}",

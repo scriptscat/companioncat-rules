@@ -22,6 +22,11 @@ const PAGE_VARIABLES = new Set(['trigger'])
 // An entry is an automation entry when its run has one of these steps (as in the schema).
 const AUTOMATION_STEPS = ['find', 'act', 'ask', 'if', 'repeat', 'stop']
 const ONLY_AUTOMATION = "can only be used in an automation entry's triggers and run"
+// landed.<step id>.url / .host: where an http step ended up after redirects. Only an engine's
+// http request and its steps' request and output may read it.
+const LANDED = 'landed'
+const ONLY_HTTP = "can only be used in an engine's http request and step output"
+const LANDED_AT = /^\/(?:providers\/\d+|overrides\/[^/]+)\/implements\/[^/]+(?:\/\d+)?\/http\/(?:request|steps\/\d+\/(?:request|output))(?:\/|$)/
 // CEL's built-in type names, usable as values: type(x) == map.
 const TYPE_NAMES = new Set(['bool', 'int', 'uint', 'double', 'string', 'bytes', 'list', 'map', 'null_type', 'type'])
 // CEL macros whose first argument binds an iteration variable.
@@ -93,28 +98,31 @@ function isFieldPath (node) {
 
 // Collects identifiers that are not R8.3 variables (macro iteration variables are
 // bound inside their macro), calls outside the whitelist and malformed has() calls.
-// `page` is true inside an automation entry's triggers and run.
-function findProblems (node, bound, out, page) {
+// `at.page` is true inside an automation entry's triggers and run, `at.landed` inside an http request or step output.
+function findProblems (node, bound, out, at) {
   if (!node || typeof node !== 'object') return
   if (Array.isArray(node)) {
-    for (const n of node) findProblems(n, bound, out, page)
+    for (const n of node) findProblems(n, bound, out, at)
     return
   }
   if (!node.op) return
   if (node.op === 'id') {
     const name = node.args
-    if (bound.has(name) || VARIABLES.has(name) || TYPE_NAMES.has(name) || (page && PAGE_VARIABLES.has(name))) return
+    if (bound.has(name) || VARIABLES.has(name) || TYPE_NAMES.has(name)) return
+    if ((at.page && PAGE_VARIABLES.has(name)) || (at.landed && name === LANDED)) return
     out.push({
       message: PAGE_VARIABLES.has(name)
         ? `variable "${name}" ${ONLY_AUTOMATION}`
-        : `unknown variable "${name}" (allowed: ${[...VARIABLES].join(', ')})`,
+        : name === LANDED
+          ? `variable "${name}" ${ONLY_HTTP}`
+          : `unknown variable "${name}" (allowed: ${[...VARIABLES].join(', ')})`,
       pos: node.pos
     })
     return
   }
   if (node.op === 'call' || node.op === 'rcall') {
     const name = node.args[0]
-    if (PAGE_FUNCTIONS.has(name) && !page) {
+    if (PAGE_FUNCTIONS.has(name) && !at.page) {
       out.push({ message: `function ${name}() ${ONLY_AUTOMATION}`, pos: node.pos })
     } else if (!FUNCTIONS.has(name) && !MACROS.has(name) && !PAGE_FUNCTIONS.has(name)) {
       out.push({ message: `function ${name}() is not in the R8.1 whitelist`, pos: node.pos })
@@ -125,14 +133,14 @@ function findProblems (node, bound, out, page) {
   }
   if (node.op === 'rcall' && MACROS.has(node.args[0]) && node.args[2]?.[0]?.op === 'id') {
     const [, receiver, [iter, ...body]] = node.args
-    findProblems(receiver, bound, out, page)
-    findProblems(body, new Set([...bound, iter.args]), out, page)
+    findProblems(receiver, bound, out, at)
+    findProblems(body, new Set([...bound, iter.args]), out, at)
     return
   }
-  findProblems(node.args, bound, out, page)
+  findProblems(node.args, bound, out, at)
 }
 
-function checkExpression (source, page) {
+function checkExpression (source, at) {
   let ast
   try {
     ast = cel.parse(source).ast
@@ -140,7 +148,7 @@ function checkExpression (source, page) {
     return { message: err.message.split('\n')[0], pos: err.node?.pos ?? 0 }
   }
   const problems = []
-  findProblems(ast, new Set(), problems, page)
+  findProblems(ast, new Set(), problems, at)
   return problems[0] ?? null
 }
 
@@ -212,13 +220,13 @@ export function checkPack (text) {
   if (!result.valid) problems.push(...leafErrors(result.errors))
   const pageAt = pagePointers(pack)
   for (const [pointer, value] of strings(pack)) {
-    const page = pageAt.some((p) => pointer === p || pointer.startsWith(p + '/'))
+    const at = { page: pageAt.some((p) => pointer === p || pointer.startsWith(p + '/')), landed: LANDED_AT.test(pointer) }
     for (const t of scanTemplates(value)) {
       if (t.error) {
         problems.push({ path: pointer, message: `${t.error} in ${JSON.stringify(value)}` })
         continue
       }
-      const bad = checkExpression(t.source, page)
+      const bad = checkExpression(t.source, at)
       if (bad) {
         problems.push({
           path: pointer,
