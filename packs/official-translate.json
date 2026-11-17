@@ -4,7 +4,7 @@
   "id": "official-translate",
   "name": "翻译",
   "description": "划词翻译和网页对照翻译，附带 Google、微软两个免 Key 的翻译引擎。",
-  "version": "2026.11.17.3",
+  "version": "2026.11.17.4",
   "homepage": "https://github.com/scriptscat/companioncat-rules",
 
   "providers": [
@@ -241,10 +241,16 @@
               "title": "用哪个引擎",
               "description": "整页翻译字数多，建议用免费的引擎。",
               "default": "official-translate/microsoft"
+            },
+            "hotkey": {
+              "type": "hotkey",
+              "title": "快捷键",
+              "description": "同时出现在小猫气泡和脚本猫菜单里；再按一次恢复原文。",
+              "default": "Alt+A"
             }
           },
           "triggers": [
-            { "on": "command", "title": "对照翻译这个网页", "hotkey": "Alt+A", "quick": true },
+            { "on": "command", "title": "对照翻译这个网页", "hotkey": "{{ settings.hotkey }}", "quick": true },
             { "on": "page-load", "enabled": "{{ settings.auto }}" }
           ],
           "toggle": true,
