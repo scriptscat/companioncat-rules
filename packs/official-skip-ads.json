@@ -1,0 +1,121 @@
+{
+  "$schema": "https://raw.githubusercontent.com/scriptscat/companioncat-rules/main/schema/v1.json",
+  "schema": 1,
+  "id": "official-skip-ads",
+  "name": "跳过广告",
+  "description": "视频或网页上新冒出来的「跳过」「关闭广告」按钮，让引擎看过之后替你点；拿不准时先问你。",
+  "version": "2026.11.17",
+  "homepage": "https://github.com/scriptscat/companioncat-rules",
+  "features": [
+    {
+      "id": "skip-ads",
+      "name": "跳过广告",
+      "description": "只看新出现的按钮，页面加载时就有的不管。",
+      "icon": "fast-forward",
+      "match": [
+        "*://*/*"
+      ],
+      "entries": [
+        {
+          "id": "auto-skip",
+          "name": "自动跳过广告",
+          "settings": {
+            "siteEnabled": {
+              "type": "boolean",
+              "title": "在这个网站跳过广告",
+              "scope": "site",
+              "default": false,
+              "quick": true
+            },
+            "engine": {
+              "type": "engine",
+              "capability": "choose",
+              "title": "用哪个引擎判断"
+            },
+            "threshold": {
+              "type": "number",
+              "title": "多有把握才直接点",
+              "min": 0.5,
+              "max": 0.99,
+              "step": 0.01,
+              "default": 0.85,
+              "format": "percent"
+            },
+            "below": {
+              "type": "enum",
+              "title": "低于门槛时",
+              "default": "ask",
+              "options": {
+                "ask": "先问你",
+                "hint": "只提示",
+                "skip": "不做"
+              }
+            }
+          },
+          "triggers": [
+            {
+              "on": "appear",
+              "enabled": "{{ settings.siteEnabled }}",
+              "selector": "button, [role=button], a",
+              "debounceMs": 300
+            }
+          ],
+          "run": [
+            {
+              "set": {
+                "box": "{{ closest(trigger.element, 'video, [class*=player], [id*=player], [class*=advert], [class*=ad-], [class*=-ad], [role=dialog]') }}",
+                "looksLike": "(跳过|[Ss][Kk][Ii][Pp]|关闭广告|[Cc][Ll][Oo][Ss][Ee] [Aa][Dd])"
+              }
+            },
+            {
+              "if": "{{ size(match(text(trigger.element), vars.looksLike)) == 0 }}",
+              "then": [
+                {
+                  "stop": true
+                }
+              ]
+            },
+            {
+              "find": "button, [role=button], a",
+              "within": "{{ vars.box }}",
+              "where": "{{ size(match(text(item), vars.looksLike)) > 0 }}",
+              "all": true,
+              "as": "candidates"
+            },
+            {
+              "if": "{{ size(vars.candidates) == 0 }}",
+              "then": [
+                {
+                  "stop": true
+                }
+              ]
+            },
+            {
+              "ask": "choose",
+              "engine": "{{ has(settings.engine) ? settings.engine : '' }}",
+              "input": {
+                "state": "{{ outline(vars.box, 400) }}",
+                "question": "哪个是跳过或关闭广告的按钮？都不是就选「都不是」。",
+                "options": "{{ extractJson('{' + join(vars.candidates.map(c, json(describe(c)) + ':' + json(describe(c))), ',') + ',\"都不是\":\"都不是\"}') }}"
+              },
+              "as": "pick"
+            },
+            {
+              "if": "{{ vars.pick.choice != '都不是' }}",
+              "then": [
+                {
+                  "act": "click",
+                  "target": "{{ vars.candidates.filter(c, describe(c) == vars.pick.choice)[0] }}",
+                  "confidence": "{{ vars.pick.confidence }}",
+                  "minConfidence": "{{ settings.threshold }}",
+                  "below": "{{ settings.below }}",
+                  "describe": "{{ '「' + vars.pick.choice + '」按钮' }}"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

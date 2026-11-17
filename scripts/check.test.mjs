@@ -13,11 +13,12 @@ function check (...files) {
   return { code: r.status, out: r.stdout + r.stderr }
 }
 
-test('both official packs pass by default', () => {
+test('every official pack passes by default', () => {
   const { code, out } = check()
   assert.equal(code, 0, out)
   assert.match(out, /packs\/official-translate\.json/)
   assert.match(out, /packs\/official-llm\.json/)
+  assert.match(out, /packs\/official-skip-ads\.json/)
 })
 
 test('a minimal valid pack passes', () => {
