@@ -4,7 +4,7 @@
   "id": "official-translate",
   "name": "翻译",
   "description": "划词翻译和网页对照翻译，附带 Google、微软两个免 Key 的翻译引擎。",
-  "version": "2026.11.17.1",
+  "version": "2026.11.17.2",
   "homepage": "https://github.com/scriptscat/companioncat-rules",
 
   "providers": [
@@ -195,7 +195,7 @@
               "on": "selection",
               "enabled": "{{ settings.siteEnabled }}",
               "confirm": "{{ settings.confirm }}",
-              "ignoreIn": ["input", "textarea", "[contenteditable]"],
+              "ignoreIn": ["input", "textarea", "[contenteditable]:not([contenteditable=\"false\"])"],
               "minLength": 1,
               "maxLength": 5000
             }
