@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { readFileSync } from 'node:fs'
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const fixture = (name) => path.join('test', 'fixtures', name)
@@ -102,4 +103,22 @@ test('has() on anything but a field path fails, as cel-js rejects it when checki
   const { code, out } = check(fixture('has-invalid.json'))
   assert.equal(code, 1, out)
   assert.match(out, /\/bridges\/0\/check: .*has\(\)/)
+})
+
+test('match(text, regex) from R8.1 is accepted, including raw-string regexes', async () => {
+  const { checkPack } = await import('./check.mjs')
+  const pack = JSON.parse(readFileSync(path.join(root, fixture('valid-minimal.json')), 'utf8'))
+  pack.features[0].entries[0].run[0].set.to = "{{ size(match(settings.page, 'IG:\"([0-9A-F]+)\"')) > 0 ? match(settings.page, r'\\[(\\d+),\"([^\"]+)\"')[1] : 'en' }}"
+  assert.deepEqual(checkPack(JSON.stringify(pack)), [])
+  pack.features[0].entries[0].run[0].set.to = "{{ match(page.html, '(') }}"
+  assert.deepEqual(checkPack(JSON.stringify(pack)), [], 'regex validity is a runtime error, not a check error')
+})
+
+test('CEL type names such as map and list are not mistaken for variables', async () => {
+  const { checkPack } = await import('./check.mjs')
+  const pack = JSON.parse(readFileSync(path.join(root, fixture('valid-minimal.json')), 'utf8'))
+  pack.features[0].entries[0].run[0].set.to = "{{ type(settings.x) == map || type(settings.x) == list || type(settings.x) == string ? 'a' : 'b' }}"
+  assert.deepEqual(checkPack(JSON.stringify(pack)), [])
+  pack.features[0].entries[0].run[0].set.to = '{{ type(settings.x) == mapp }}'
+  assert.match(checkPack(JSON.stringify(pack))[0]?.message ?? '', /unknown variable "mapp"/)
 })

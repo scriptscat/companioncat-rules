@@ -4,7 +4,7 @@
   "id": "official-translate",
   "name": "翻译",
   "description": "划词翻译和网页对照翻译，附带 Google、微软两个免 Key 的翻译引擎。",
-  "version": "2026.11.16",
+  "version": "2026.11.17",
   "homepage": "https://github.com/scriptscat/companioncat-rules",
 
   "providers": [
@@ -43,9 +43,9 @@
     {
       "id": "microsoft",
       "name": "微软翻译",
-      "description": "免费接口，不用填 Key；每次先取一个临时 token",
+      "description": "必应网页翻译接口，不用填 Key；先从翻译页面取临时 token，缓存 10 分钟",
       "icon": "languages",
-      "hosts": ["edge.microsoft.com", "api-cognitive.microsofttranslator.com"],
+      "hosts": ["www.bing.com"],
       "limits": {
         "timeoutMs": 10000,
         "retry": { "on": ["network", "timeout", "server"], "max": 1 },
@@ -55,31 +55,45 @@
       "implements": {
         "translate": {
           "http": {
-            "langMap": { "auto": "", "zh-CN": "zh-Hans", "zh-TW": "zh-Hant" },
-            "batch": { "maxItems": 100, "maxChars": 10000 },
+            "langMap": { "auto": "auto-detect", "zh-CN": "zh-Hans", "zh-TW": "zh-Hant" },
+            "batch": { "join": "\n", "maxChars": 1000 },
             "steps": [
               {
-                "id": "token",
-                "request": { "method": "GET", "url": "https://edge.microsoft.com/translate/auth" },
+                "id": "page",
+                "request": { "method": "GET", "url": "https://www.bing.com/translator" },
                 "response": "text",
-                "output": "{{ response }}",
+                "output": {
+                  "ig": "{{ match(response, 'IG:\"([0-9A-Fa-f]+)\"')[0] }}",
+                  "key": "{{ match(response, 'params_AbusePreventionHelper *= *[[]([0-9]+),\"([^\"]+)\"')[0] }}",
+                  "token": "{{ match(response, 'params_AbusePreventionHelper *= *[[]([0-9]+),\"([^\"]+)\"')[1] }}"
+                },
                 "cache": 600
               }
             ],
             "request": {
               "method": "POST",
-              "url": "https://api-cognitive.microsofttranslator.com/translate?api-version=3.0&to={{ input.to }}{{ has(input.from) && input.from != '' ? '&from=' + input.from : '' }}",
-              "headers": { "Authorization": "Bearer {{ steps.token }}" },
-              "json": "{{ input.texts.map(t, {'Text': t}) }}"
+              "url": "https://www.bing.com/ttranslatev3?isVertical=1&IG={{ steps.page.ig }}&IID=translator.5028",
+              "form": {
+                "fromLang": "{{ has(input.from) && input.from != '' ? input.from : 'auto-detect' }}",
+                "to": "{{ input.to }}",
+                "text": "{{ input.texts[0] }}",
+                "token": "{{ steps.page.token }}",
+                "key": "{{ steps.page.key }}"
+              }
             },
             "response": "json",
             "output": {
-              "texts": "{{ response.map(r, r.translations[0].text) }}"
+              "texts": "{{ [response[0].translations[0].text] }}"
             },
             "errors": [
-              { "status": 401, "type": "auth", "message": "微软翻译的临时 token 失效了" },
+              { "status": [401, 403], "type": "auth", "message": "微软翻译拒绝了这次请求，过一会儿再试" },
               { "status": 429, "type": "rateLimit", "message": "微软翻译暂时限制了访问，过一会儿再试" },
-              { "status": "5xx", "type": "server", "message": "微软翻译暂时出错了" }
+              { "status": "5xx", "type": "server", "message": "微软翻译暂时出错了" },
+              { "when": "{{ type(response) == map && has(response.ShowCaptcha) && response.ShowCaptcha == true }}", "type": "rateLimit", "message": "微软翻译要求人机验证，过一会儿再试" },
+              { "when": "{{ type(response) == map && has(response.statusCode) && response.statusCode == 205 }}", "type": "auth", "message": "微软翻译的临时 token 失效了，10 分钟内会自动重新获取" },
+              { "when": "{{ type(response) == map && has(response.statusCode) && response.statusCode == 429 }}", "type": "rateLimit", "message": "微软翻译暂时限制了访问，过一会儿再试" },
+              { "when": "{{ type(response) == map && has(response.statusCode) && response.statusCode == 400 }}", "type": "badInput", "message": "微软翻译不支持这个语言或这段文字" },
+              { "when": "{{ type(response) == map && has(response.statusCode) }}", "type": "server", "message": "微软翻译暂时出错了" }
             ]
           }
         }

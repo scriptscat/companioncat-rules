@@ -15,6 +15,8 @@ const VARIABLES = new Set([
   'settings', 'vars', 'input', 'secret', 'options', 'selection', 'page', 'site',
   'steps', 'response', 'stream', 'result', 'item', 'params', 'value'
 ])
+// CEL's built-in type names, usable as values: type(x) == map.
+const TYPE_NAMES = new Set(['bool', 'int', 'uint', 'double', 'string', 'bytes', 'list', 'map', 'null_type', 'type'])
 // CEL macros whose first argument binds an iteration variable.
 const MACROS = new Set(['all', 'exists', 'exists_one', 'map', 'filter'])
 
@@ -85,7 +87,7 @@ function findProblems (node, bound, out) {
   }
   if (!node.op) return
   if (node.op === 'id') {
-    if (!bound.has(node.args) && !VARIABLES.has(node.args)) {
+    if (!bound.has(node.args) && !VARIABLES.has(node.args) && !TYPE_NAMES.has(node.args)) {
       out.push({ message: `unknown variable "${node.args}" (allowed: ${[...VARIABLES].join(', ')})`, pos: node.pos })
     }
     return
