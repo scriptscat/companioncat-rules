@@ -1,0 +1,91 @@
+{
+  "schema": 1,
+  "id": "fixture-automation",
+  "name": "自动化写法",
+  "version": "2026.11.17",
+  "views": {
+    "result": {
+      "params": ["items"],
+      "type": "card",
+      "body": { "type": "text", "value": "{{ size(params.items) > 0 ? '有结果' : '没有结果' }}" }
+    }
+  },
+  "features": [{
+    "id": "demo",
+    "name": "示例",
+    "match": ["*://*/*"],
+    "settings": {
+      "threshold": { "type": "number", "title": "多有把握才直接点", "min": 0.5, "max": 0.99, "step": 0.01, "default": 0.85, "format": "percent" },
+      "below": { "type": "enum", "title": "低于门槛时", "default": "ask", "options": { "ask": "先问你", "hint": "只提示", "skip": "不做" } },
+      "hotkey": { "type": "hotkey", "title": "快捷键", "default": "Alt+A" }
+    },
+    "entries": [
+      {
+        "id": "skip",
+        "name": "跳过广告",
+        "triggers": [{ "on": "appear", "enabled": "{{ settings.below != 'skip' }}", "selector": "button, [role=button]", "debounceMs": 300 }],
+        "run": [
+          { "find": "button, [role=button]", "within": "{{ vars.player }}", "where": "{{ item != null }}", "all": true, "as": "candidates" },
+          { "if": "{{ size(vars.candidates) == 0 }}", "then": [{ "stop": true }] },
+          { "ask": "choose", "engine": "{{ settings.engine }}", "strategy": "first",
+            "input": { "question": "哪个是跳过广告的按钮？", "options": "{{ vars.candidates }}" }, "as": "pick" },
+          { "act": "click", "target": "{{ vars.candidates[0] }}", "confidence": "{{ vars.pick.confidence }}",
+            "minConfidence": "{{ settings.threshold }}", "below": "{{ settings.below }}", "describe": "「跳过广告」按钮" }
+        ]
+      },
+      {
+        "id": "unfold",
+        "name": "展开全文",
+        "triggers": [{ "on": "page-load" }, { "on": "appear", "selector": "#comments .reply-more" }],
+        "run": [
+          { "find": "#comments .reply-more", "all": true, "as": "replies" },
+          { "repeat": "{{ vars.replies }}", "max": 20, "steps": [
+            { "act": "click", "target": "{{ item }}", "minConfidence": 0.8, "confidence": 1, "below": "hint" },
+            { "act": "wait", "ms": 300 }
+          ] },
+          { "repeat": true, "until": "{{ vars.done }}", "max": 5, "steps": [
+            { "act": "wait", "selector": ".more", "timeoutMs": 2000 },
+            { "act": "scroll", "target": "{{ vars.more }}" },
+            { "set": { "done": true } }
+          ] },
+          { "act": "fill", "target": "{{ vars.box }}", "value": "你好" },
+          { "act": "check", "target": "{{ vars.agree }}", "value": false },
+          { "act": "select", "target": "{{ vars.menu }}", "value": "b" },
+          { "act": "focus", "target": "{{ vars.box }}" }
+        ]
+      },
+      {
+        "id": "solve",
+        "name": "帮我做这页的题",
+        "triggers": [{ "on": "command", "title": "帮我做这页的题", "hotkey": "{{ settings.hotkey }}", "quick": true }],
+        "run": [
+          { "find": "auto:questions", "as": "questions" },
+          { "repeat": "{{ vars.questions }}", "steps": [
+            { "if": "{{ item.kind == 'blank' }}",
+              "then": [{ "ask": "chat", "input": { "messages": [] }, "as": "answer" }],
+              "else": [{ "ask": "choose", "engines": ["a", "b"], "strategy": "vote", "input": { "question": "q", "options": { "a": "1", "b": "2" } } }] }
+          ] }
+        ],
+        "present": {
+          "surface": { "type": "page-card", "closeOn": ["escape"] },
+          "view": { "use": "result", "with": { "items": "{{ vars.questions }}" } }
+        }
+      },
+      {
+        "id": "page",
+        "name": "网页对照",
+        "triggers": [
+          { "on": "command", "title": "对照翻译这个网页", "hotkey": "Alt+Shift+T", "quick": true },
+          { "on": "page-load", "enabled": "{{ settings.below == 'ask' }}" }
+        ],
+        "toggle": true,
+        "select": { "blocks": "auto", "exclude": ["pre", "code"], "lazy": "viewport", "watch": "mutations" },
+        "run": [{ "call": "translate", "batch": "blocks", "input": { "texts": [], "to": "zh-CN" }, "as": "results" }],
+        "present": {
+          "surface": { "type": "inline-after", "target": "block", "hideSource": false },
+          "view": { "type": "text", "value": "{{ result }}" }
+        }
+      }
+    ]
+  }]
+}

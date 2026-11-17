@@ -382,7 +382,7 @@
       "type": "object",
       "description": "设置项。值按 规则包 + 功能 + 入口 + 设置项 保存，scope 为 site 的再按网站保存。",
       "properties": {
-        "type": { "enum": ["boolean", "enum", "language", "engine", "engines", "string", "number"] },
+        "type": { "enum": ["boolean", "enum", "language", "engine", "engines", "string", "number", "hotkey"] },
         "title": { "type": "string" },
         "description": { "type": "string" },
         "default": {},
@@ -396,7 +396,8 @@
         "max": { "type": "number" },
         "min": { "type": "number" },
         "step": { "type": "number" },
-        "placeholder": { "type": "string" }
+        "placeholder": { "type": "string" },
+        "format": { "enum": ["percent"], "description": "number：percent 按百分比显示和输入，0.85 显示成 85%。" }
       },
       "required": ["type", "title"],
       "additionalProperties": false,
@@ -407,6 +408,8 @@
         { "if": { "properties": { "type": { "const": "number" } } }, "then": { "properties": { "default": { "type": "number" } } } },
         { "if": { "properties": { "type": { "enum": ["enum", "language", "engine", "string"] } } }, "then": { "properties": { "default": { "type": "string" } } } },
         { "if": { "properties": { "type": { "const": "engines" } } }, "then": { "properties": { "default": { "type": "array", "items": { "type": "string" } } } } },
+        { "if": { "properties": { "type": { "const": "hotkey" } } }, "then": { "properties": { "default": { "$ref": "#/$defs/hotkey" } } } },
+        { "if": { "properties": { "type": { "not": { "const": "number" } } } }, "then": { "properties": { "format": false } } },
         { "if": { "properties": { "type": { "not": { "const": "engines" } } } }, "then": { "properties": { "quick": { "type": "boolean" } } } }
       ]
     },
@@ -417,11 +420,17 @@
       "additionalProperties": { "anyOf": [{ "$ref": "#/$defs/setting" }, { "type": "null" }] }
     },
 
+    "hotkey": {
+      "type": "string",
+      "pattern": "^(((Ctrl|Alt|Shift|Meta)\\+)*[^\\s+]+)?$",
+      "description": "快捷键，修饰键在前、用 + 连接，例如 Alt+A、Ctrl+Shift+K；空字符串表示不设快捷键。"
+    },
+
     "trigger": {
       "type": "object",
-      "description": "第一期运行 selection；command、page-load 属于网页对照入口，格式先定下来。",
+      "description": "selection：选中文字时；command：气泡按钮，写了 hotkey 时还有快捷键，同时生成脚本猫菜单项；page-load：页面加载完成后运行一次；appear：页面上新出现匹配 selector 的元素时运行。",
       "properties": {
-        "on": { "enum": ["selection", "command", "page-load"] },
+        "on": { "enum": ["selection", "command", "page-load", "appear"] },
         "enabled": { "$ref": "#/$defs/bool" },
         "confirm": {
           "description": "selection：paw 先伸出猫爪，none 直接继续，alt 按住 Alt 才继续。",
@@ -431,26 +440,93 @@
         "minLength": { "type": "integer", "minimum": 1 },
         "maxLength": { "type": "integer", "minimum": 1 },
         "title": { "type": "string", "description": "command：菜单和气泡里的名字。" },
-        "hotkey": { "type": "string", "description": "command：快捷键，例如 Alt+A。" },
-        "quick": { "type": "boolean", "description": "command：在小猫气泡里显示成按钮。" }
+        "hotkey": {
+          "description": "command：快捷键，例如 Alt+A，或者取 hotkey 类型设置的表达式。",
+          "anyOf": [{ "$ref": "#/$defs/template" }, { "$ref": "#/$defs/hotkey" }]
+        },
+        "quick": { "type": "boolean", "description": "command：在小猫气泡里显示成按钮。" },
+        "selector": { "type": "string", "minLength": 1, "description": "appear：新出现的元素匹配这个 CSS 选择器时运行；页面加载时已经存在的不算。" },
+        "debounceMs": { "type": "integer", "minimum": 0, "default": 300, "description": "appear：同一批变化在这么多毫秒内只触发一次。" }
       },
       "required": ["on"],
       "additionalProperties": false,
       "allOf": [
-        { "if": { "properties": { "on": { "const": "command" } } }, "then": { "required": ["title"] } }
+        { "if": { "properties": { "on": { "const": "command" } } }, "then": { "required": ["title"] } },
+        {
+          "if": { "required": ["on"], "properties": { "on": { "const": "appear" } } },
+          "then": { "required": ["selector"] },
+          "else": { "properties": { "selector": false, "debounceMs": false } }
+        }
       ]
     },
 
     "runStep": {
       "type": "object",
-      "description": "set 把值写进 vars；call 调用契约，结果按 as 写进 vars。",
+      "description": "一个步骤，只写一种：set 把值写进 vars；call 调用契约；find 找页面元素；act 对元素做一个动作；ask 问引擎；if 按条件执行；repeat 重复执行；stop 结束这次运行。",
+      "if": { "required": ["set"] },
+      "then": { "$ref": "#/$defs/setStep" },
+      "else": {
+        "if": { "required": ["call"] },
+        "then": { "$ref": "#/$defs/callStep" },
+        "else": {
+          "if": { "required": ["find"] },
+          "then": { "$ref": "#/$defs/findStep" },
+          "else": {
+            "if": { "required": ["act"] },
+            "then": { "$ref": "#/$defs/actStep" },
+            "else": {
+              "if": { "required": ["ask"] },
+              "then": { "$ref": "#/$defs/askStep" },
+              "else": {
+                "if": { "required": ["if"] },
+                "then": { "$ref": "#/$defs/ifStep" },
+                "else": {
+                  "if": { "required": ["repeat"] },
+                  "then": { "$ref": "#/$defs/repeatStep" },
+                  "else": {
+                    "if": { "required": ["stop"] },
+                    "then": { "$ref": "#/$defs/stopStep" },
+                    "else": {
+                      "anyOf": [
+                        { "required": ["set"] },
+                        { "required": ["call"] },
+                        { "required": ["find"] },
+                        { "required": ["act"] },
+                        { "required": ["ask"] },
+                        { "required": ["if"] },
+                        { "required": ["repeat"] },
+                        { "required": ["stop"] }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "steps": { "type": "array", "items": { "$ref": "#/$defs/runStep" }, "minItems": 1 },
+
+    "setStep": {
+      "type": "object",
       "properties": {
         "set": {
           "type": "object",
           "propertyNames": { "$ref": "#/$defs/key" },
-          "minProperties": 1
-        },
-        "call": { "$ref": "#/$defs/contractId" },
+          "minProperties": 1,
+          "description": "把这些值写进 vars。"
+        }
+      },
+      "required": ["set"],
+      "additionalProperties": false
+    },
+
+    "callStep": {
+      "type": "object",
+      "properties": {
+        "call": { "$ref": "#/$defs/contractId", "description": "调用这个契约。" },
         "strategy": { "enum": ["first", "race", "all", "vote"], "default": "first" },
         "engines": {
           "description": "引擎 id 列表；不写就用「每种能力先用谁」。",
@@ -461,11 +537,135 @@
         "batch": { "enum": ["blocks"], "description": "网页对照入口：按段落分批调用。" },
         "as": { "$ref": "#/$defs/key", "description": "结果写进 vars.<as>。" }
       },
+      "required": ["call", "input"],
+      "additionalProperties": false
+    },
+
+    "findStep": {
+      "type": "object",
+      "description": "在页面上（或 within 的范围里）找可见的元素，结果是元素句柄的列表，写进 vars.<as>；没找到是空列表。",
+      "properties": {
+        "find": {
+          "description": "CSS 选择器，或 auto:questions（由陪伴猫识别单选、多选、填空题，每题有题干、类型和选项）。",
+          "anyOf": [{ "const": "auto:questions" }, { "type": "string", "pattern": "^(?!auto:)\\S" }]
+        },
+        "within": { "$ref": "#/$defs/template", "description": "只在这个元素里找。" },
+        "where": { "$ref": "#/$defs/template", "description": "再按这个条件过滤元素。" },
+        "all": { "type": "boolean", "default": false, "description": "true 时返回全部，否则只返回第一个。" },
+        "as": { "$ref": "#/$defs/key" }
+      },
+      "required": ["find", "as"],
+      "additionalProperties": false
+    },
+
+    "confidence": {
+      "anyOf": [{ "type": "number", "minimum": 0, "maximum": 1 }, { "$ref": "#/$defs/template" }]
+    },
+
+    "actStep": {
+      "type": "object",
+      "description": "对目标元素做一个动作。写了 minConfidence 时，confidence 达到它才直接做，没到按 below 处理；没写就直接做。",
+      "properties": {
+        "act": {
+          "enum": ["click", "fill", "check", "select", "scroll", "focus", "wait"],
+          "description": "click 点击；fill 填入文字（触发 input/change）；check 勾选或取消；select 在下拉框里选中一项；scroll 滚动到元素；focus 让元素获得焦点；wait 等待。"
+        },
+        "target": { "$ref": "#/$defs/template", "description": "目标元素（find 的结果）。" },
+        "value": { "description": "fill：要填的文字；select：要选的一项；check：true 勾选、false 取消，不写就是勾选。" },
+        "ms": {
+          "description": "wait：等这么多毫秒。",
+          "anyOf": [{ "type": "integer", "minimum": 0 }, { "$ref": "#/$defs/template" }]
+        },
+        "selector": { "type": "string", "minLength": 1, "description": "wait：等到页面上出现匹配的元素。" },
+        "timeoutMs": { "type": "integer", "minimum": 1, "description": "wait：最多等多久，超时就停止这次运行。" },
+        "confidence": { "$ref": "#/$defs/confidence", "description": "这次动作有多大把握，0 到 1，通常取 ask 的结果。" },
+        "minConfidence": { "$ref": "#/$defs/confidence", "description": "门槛，0 到 1。" },
+        "below": {
+          "description": "低于门槛时：ask 先问你，hint 在目标旁边标出建议，skip 不做只记录。",
+          "anyOf": [{ "enum": ["ask", "hint", "skip"] }, { "$ref": "#/$defs/template" }]
+        },
+        "describe": { "$ref": "#/$defs/text", "description": "给人看的一句描述，用于动作记录和先问你。" }
+      },
+      "required": ["act"],
       "additionalProperties": false,
-      "oneOf": [
-        { "required": ["set"], "not": { "anyOf": [{ "required": ["call"] }, { "required": ["strategy"] }, { "required": ["engines"] }, { "required": ["input"] }, { "required": ["stream"] }, { "required": ["batch"] }, { "required": ["as"] }] } },
-        { "required": ["call", "input"], "not": { "required": ["set"] } }
+      "dependentRequired": { "minConfidence": ["confidence"], "below": ["minConfidence"] },
+      "allOf": [
+        {
+          "if": { "properties": { "act": { "const": "wait" } } },
+          "then": {
+            "anyOf": [{ "required": ["ms"] }, { "required": ["selector"] }],
+            "properties": { "target": false, "value": false, "confidence": false, "minConfidence": false, "below": false }
+          },
+          "else": {
+            "required": ["target"],
+            "properties": { "ms": false, "selector": false, "timeoutMs": false }
+          }
+        },
+        { "if": { "required": ["ms"] }, "then": { "properties": { "selector": false, "timeoutMs": false } } },
+        { "if": { "properties": { "act": { "enum": ["fill", "select"] } } }, "then": { "required": ["value"], "properties": { "value": { "$ref": "#/$defs/text" } } } },
+        { "if": { "properties": { "act": { "const": "check" } } }, "then": { "properties": { "value": { "$ref": "#/$defs/bool" } } } },
+        { "if": { "properties": { "act": { "enum": ["click", "scroll", "focus"] } } }, "then": { "properties": { "value": false } } }
       ]
+    },
+
+    "askStep": {
+      "type": "object",
+      "description": "问引擎：调用一个契约（通常是 choose 或 chat），走和 call 一样的调用管道；结果带 confidence，写进 vars.<as>。",
+      "properties": {
+        "ask": { "$ref": "#/$defs/contractId" },
+        "engine": { "$ref": "#/$defs/text", "description": "用哪个引擎，可以写表达式；和 engines 只写一个，都不写就用「每种能力先用谁」。" },
+        "engines": {
+          "description": "引擎 id 列表，配合 strategy 使用。",
+          "anyOf": [{ "type": "array", "items": { "type": "string" } }, { "$ref": "#/$defs/template" }]
+        },
+        "strategy": {
+          "anyOf": [{ "enum": ["first", "race", "all", "vote"] }, { "$ref": "#/$defs/template" }],
+          "default": "first"
+        },
+        "input": { "anyOf": [{ "type": "object" }, { "$ref": "#/$defs/template" }] },
+        "as": { "$ref": "#/$defs/key", "description": "结果写进 vars.<as>。" }
+      },
+      "required": ["ask", "input"],
+      "additionalProperties": false,
+      "allOf": [{ "if": { "required": ["engine"] }, "then": { "properties": { "engines": false } } }]
+    },
+
+    "ifStep": {
+      "type": "object",
+      "properties": {
+        "if": { "$ref": "#/$defs/bool", "description": "条件。" },
+        "then": { "$ref": "#/$defs/steps", "description": "条件为真时执行。" },
+        "else": { "$ref": "#/$defs/steps", "description": "条件为假时执行。" }
+      },
+      "required": ["if", "then"],
+      "additionalProperties": false
+    },
+
+    "repeatStep": {
+      "type": "object",
+      "description": "repeat 写一个列表时，对每一项执行 steps，当前项是 item；写 true 时重复执行 steps，直到 until 成立，最多 max 次。",
+      "properties": {
+        "repeat": { "anyOf": [{ "$ref": "#/$defs/template" }, { "const": true }] },
+        "until": { "$ref": "#/$defs/template", "description": "repeat 为 true：条件成立就停。" },
+        "max": { "type": "integer", "minimum": 1, "description": "最多执行几次。" },
+        "steps": { "$ref": "#/$defs/steps" }
+      },
+      "required": ["repeat", "steps"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "repeat": { "const": true } } },
+          "then": { "required": ["until", "max"] },
+          "else": { "properties": { "until": false } }
+        }
+      ]
+    },
+
+    "stopStep": {
+      "type": "object",
+      "properties": { "stop": { "const": true, "description": "结束这次运行。" } },
+      "required": ["stop"],
+      "additionalProperties": false
     },
 
     "select": {
@@ -486,7 +686,10 @@
     "surface": {
       "type": "object",
       "properties": {
-        "type": { "enum": ["near-selection", "bubble", "inline-after"] },
+        "type": {
+          "enum": ["near-selection", "bubble", "inline-after", "page-card"],
+          "description": "near-selection 选中文字旁边的卡片；bubble 小猫气泡；inline-after 插在段落后面；page-card 网页角落的结果卡片（自动化入口用）。"
+        },
         "pinnable": { "type": "boolean" },
         "closeOn": { "type": "array", "items": { "enum": ["escape", "outside-click", "new-selection"] }, "uniqueItems": true },
         "target": { "enum": ["block"], "description": "inline-after：插在哪个元素后面。" },
@@ -634,10 +837,34 @@
         "toggle": { "type": "boolean", "description": "再触发一次就撤销（网页对照入口）。" },
         "select": { "$ref": "#/$defs/select" },
         "run": { "type": "array", "items": { "$ref": "#/$defs/runStep" }, "minItems": 1 },
-        "present": { "$ref": "#/$defs/present" }
+        "present": { "$ref": "#/$defs/present", "description": "结果出现在哪里、长什么样；自动化入口没有结果卡片时可以不写。" }
       },
-      "required": ["id", "name", "triggers", "run", "present"],
-      "additionalProperties": false
+      "required": ["id", "name", "triggers", "run"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "description": "自动化入口（run 里有 find、act、ask、if、repeat、stop）可以不写 present；其他入口必须写。",
+          "if": {
+            "properties": {
+              "run": {
+                "not": {
+                  "contains": {
+                    "anyOf": [
+                      { "required": ["find"] },
+                      { "required": ["act"] },
+                      { "required": ["ask"] },
+                      { "required": ["if"] },
+                      { "required": ["repeat"] },
+                      { "required": ["stop"] }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "then": { "required": ["present"] }
+        }
+      ]
     },
 
     "feature": {

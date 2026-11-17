@@ -133,3 +133,26 @@ test('only the R8.1 whitelist and the standard macros can be called', async () =
   pack.features[0].entries[0].run[0].set.to = "{{ [1].map(x, x).filter(x, x > 0).exists(x, true) && has(settings.x) && size(json(settings)) > 0 }}"
   assert.deepEqual(checkPack(JSON.stringify(pack)), [])
 })
+
+test('the round 2 automation format passes the schema and the expression check', () => {
+  const { code, out } = check(fixture('valid-automation.json'))
+  assert.equal(code, 0, out)
+})
+
+test('malformed automation shapes fail with the field path', async () => {
+  const { checkPack } = await import('./check.mjs')
+  const base = () => JSON.parse(readFileSync(path.join(root, fixture('valid-automation.json')), 'utf8'))
+  const cases = [
+    [(p) => { p.features[0].entries[0].triggers[0].on = 'appears' }, '/features/0/entries/0/triggers/0/on'],
+    [(p) => { p.features[0].entries[0].run[3].below = 'maybe' }, '/features/0/entries/0/run/3/below'],
+    [(p) => { p.features[0].entries[1].run[1].steps[0].selctor = 'a' }, '/features/0/entries/1/run/1/steps/0/selctor'],
+    [(p) => { p.features[0].settings.threshold.format = 'money' }, '/features/0/settings/threshold/format'],
+    [(p) => { p.features[0].entries[2].present.surface.type = 'corner-card' }, '/features/0/entries/2/present/surface/type']
+  ]
+  for (const [edit, pointer] of cases) {
+    const pack = base()
+    edit(pack)
+    const problems = checkPack(JSON.stringify(pack))
+    assert.ok(problems.some((p) => p.path === pointer), `${pointer}: ${JSON.stringify(problems)}`)
+  }
+})
