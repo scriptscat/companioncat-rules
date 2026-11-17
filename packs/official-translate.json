@@ -4,7 +4,7 @@
   "id": "official-translate",
   "name": "翻译",
   "description": "划词翻译和网页对照翻译，附带 Google、微软两个免 Key 的翻译引擎。",
-  "version": "2026.11.17",
+  "version": "2026.11.17.1",
   "homepage": "https://github.com/scriptscat/companioncat-rules",
 
   "providers": [
@@ -89,11 +89,11 @@
               { "status": [401, 403], "type": "auth", "message": "微软翻译拒绝了这次请求，过一会儿再试" },
               { "status": 429, "type": "rateLimit", "message": "微软翻译暂时限制了访问，过一会儿再试" },
               { "status": "5xx", "type": "server", "message": "微软翻译暂时出错了" },
-              { "when": "{{ type(response) == map && has(response.ShowCaptcha) && response.ShowCaptcha == true }}", "type": "rateLimit", "message": "微软翻译要求人机验证，过一会儿再试" },
-              { "when": "{{ type(response) == map && has(response.statusCode) && response.statusCode == 205 }}", "type": "auth", "message": "微软翻译的临时 token 失效了，10 分钟内会自动重新获取" },
-              { "when": "{{ type(response) == map && has(response.statusCode) && response.statusCode == 429 }}", "type": "rateLimit", "message": "微软翻译暂时限制了访问，过一会儿再试" },
-              { "when": "{{ type(response) == map && has(response.statusCode) && response.statusCode == 400 }}", "type": "badInput", "message": "微软翻译不支持这个语言或这段文字" },
-              { "when": "{{ type(response) == map && has(response.statusCode) }}", "type": "server", "message": "微软翻译暂时出错了" }
+              { "when": "{{ has(response.ShowCaptcha) && response.ShowCaptcha == true }}", "type": "rateLimit", "message": "微软翻译要求人机验证，过一会儿再试" },
+              { "when": "{{ has(response.statusCode) && response.statusCode == 205 }}", "type": "auth", "message": "微软翻译的临时 token 失效了，10 分钟内会自动重新获取" },
+              { "when": "{{ has(response.statusCode) && response.statusCode == 429 }}", "type": "rateLimit", "message": "微软翻译暂时限制了访问，过一会儿再试" },
+              { "when": "{{ has(response.statusCode) && response.statusCode == 400 }}", "type": "badInput", "message": "微软翻译不支持这个语言或这段文字" },
+              { "when": "{{ has(response.statusCode) }}", "type": "server", "message": "微软翻译暂时出错了" }
             ]
           }
         }

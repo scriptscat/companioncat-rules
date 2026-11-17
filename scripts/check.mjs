@@ -19,6 +19,13 @@ const VARIABLES = new Set([
 const TYPE_NAMES = new Set(['bool', 'int', 'uint', 'double', 'string', 'bytes', 'list', 'map', 'null_type', 'type'])
 // CEL macros whose first argument binds an iteration variable.
 const MACROS = new Set(['all', 'exists', 'exists_one', 'map', 'filter'])
+// Spec R8.1: the only functions an expression may call (plus the standard macros above);
+// the rest of CEL's standard library (matches, startsWith, int(), type(), ...) is refused.
+const FUNCTIONS = new Set([
+  'concat', 'replace', 'split', 'join', 'contains', 'urlencode', 'base64', 'hex', 'md5', 'sha256',
+  'hmacSha256', 'now', 'unix', 'uuid', 'random', 'json', 'extractJson', 'match', 'langName',
+  'languages', 'lang', 'host', 'has', 'size'
+])
 
 // Spec R8.4 limits.
 const cel = new Environment({
@@ -91,6 +98,9 @@ function findProblems (node, bound, out) {
       out.push({ message: `unknown variable "${node.args}" (allowed: ${[...VARIABLES].join(', ')})`, pos: node.pos })
     }
     return
+  }
+  if ((node.op === 'call' || node.op === 'rcall') && !FUNCTIONS.has(node.args[0]) && !MACROS.has(node.args[0])) {
+    out.push({ message: `function ${node.args[0]}() is not in the R8.1 whitelist`, pos: node.pos })
   }
   if (node.op === 'call' && node.args[0] === 'has' && !isFieldPath(node.args[1]?.[0])) {
     out.push({ message: 'has() needs a field path such as has(input.from)', pos: node.pos })

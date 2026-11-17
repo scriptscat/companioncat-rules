@@ -117,8 +117,19 @@ test('match(text, regex) from R8.1 is accepted, including raw-string regexes', a
 test('CEL type names such as map and list are not mistaken for variables', async () => {
   const { checkPack } = await import('./check.mjs')
   const pack = JSON.parse(readFileSync(path.join(root, fixture('valid-minimal.json')), 'utf8'))
-  pack.features[0].entries[0].run[0].set.to = "{{ type(settings.x) == map || type(settings.x) == list || type(settings.x) == string ? 'a' : 'b' }}"
+  pack.features[0].entries[0].run[0].set.to = "{{ settings.x == map || settings.x == list ? 'a' : 'b' }}"
   assert.deepEqual(checkPack(JSON.stringify(pack)), [])
-  pack.features[0].entries[0].run[0].set.to = '{{ type(settings.x) == mapp }}'
+  pack.features[0].entries[0].run[0].set.to = '{{ settings.x == mapp }}'
   assert.match(checkPack(JSON.stringify(pack))[0]?.message ?? '', /unknown variable "mapp"/)
+})
+
+test('only the R8.1 whitelist and the standard macros can be called', async () => {
+  const { checkPack } = await import('./check.mjs')
+  const pack = JSON.parse(readFileSync(path.join(root, fixture('valid-minimal.json')), 'utf8'))
+  for (const expr of ["settings.x.matches('a')", "type(settings.x) == map", "int(settings.x)", "settings.x.startsWith('a')"]) {
+    pack.features[0].entries[0].run[0].set.to = `{{ ${expr} }}`
+    assert.match(checkPack(JSON.stringify(pack))[0]?.message ?? '', /not in the R8\.1 whitelist/, expr)
+  }
+  pack.features[0].entries[0].run[0].set.to = "{{ [1].map(x, x).filter(x, x > 0).exists(x, true) && has(settings.x) && size(json(settings)) > 0 }}"
+  assert.deepEqual(checkPack(JSON.stringify(pack)), [])
 })
