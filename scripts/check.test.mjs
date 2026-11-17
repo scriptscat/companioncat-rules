@@ -19,6 +19,7 @@ test('every official pack passes by default', () => {
   assert.match(out, /packs\/official-translate\.json/)
   assert.match(out, /packs\/official-llm\.json/)
   assert.match(out, /packs\/official-skip-ads\.json/)
+  assert.match(out, /packs\/official-quiz\.json/)
 })
 
 test('a minimal valid pack passes', () => {

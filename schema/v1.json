@@ -731,6 +731,7 @@
       "properties": {
         "copy": { "$ref": "#/$defs/text", "description": "复制到剪贴板。" },
         "retry": { "$ref": "#/$defs/text", "description": "只重试这个引擎。" },
+        "scrollTo": { "$ref": "#/$defs/template", "description": "滚动到这个元素（find 的结果）。" },
         "rerun": {
           "type": "object",
           "description": "带着新的 vars 重新执行入口，只对这一张卡片有效。",
@@ -760,6 +761,7 @@
         "children": { "type": "array", "items": { "$ref": "#/$defs/component" } },
         "value": { "$ref": "#/$defs/mapping", "description": "text：文字；select：当前值。" },
         "tone": { "enum": ["default", "muted", "danger", "success"] },
+        "format": { "enum": ["percent"], "description": "text：把 0 到 1 的数字显示成百分比，0.96 显示成 96%。" },
         "style": { "$ref": "#/$defs/text", "description": "text：reading、reading-lg、inline-translation 等。" },
         "name": { "type": "string", "description": "icon：图标名（lucide）。" },
         "icon": { "type": "string" },

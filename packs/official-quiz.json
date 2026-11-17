@@ -1,0 +1,287 @@
+{
+  "$schema": "https://raw.githubusercontent.com/scriptscat/companioncat-rules/main/schema/v1.json",
+  "schema": 1,
+  "id": "official-quiz",
+  "name": "做题",
+  "description": "帮你做这一页的选择题和填空题：把握大的直接勾选、填入，把握不够的标出建议；只做题，不提交。",
+  "version": "2026.11.17",
+  "homepage": "https://github.com/scriptscat/companioncat-rules",
+  "views": {
+    "quiz-result": {
+      "description": "做题结果卡片：每题一行，列出答案、把握和引擎；没到门槛的单独标出，点一行滚到那道题；答不出来的题带重试。",
+      "params": [
+        "items"
+      ],
+      "type": "card",
+      "header": [
+        {
+          "type": "text",
+          "value": "做题结果"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "icon-button",
+          "icon": "x",
+          "label": "关闭",
+          "action": {
+            "surface": "close"
+          }
+        }
+      ],
+      "body": [
+        {
+          "type": "result-list",
+          "primary": "none",
+          "from": "{{ params.items }}",
+          "item": {
+            "ok": {
+              "type": "row",
+              "style": "{{ item.output.below ? 'below' : '' }}",
+              "action": {
+                "scrollTo": "{{ item.output.handle }}"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "{{ item.output.title }}"
+                },
+                {
+                  "type": "text",
+                  "value": "{{ item.output.answer }}"
+                },
+                {
+                  "type": "text",
+                  "tone": "muted",
+                  "format": "percent",
+                  "value": "{{ item.output.sure }}"
+                },
+                {
+                  "type": "text",
+                  "tone": "muted",
+                  "value": "{{ item.output.engine }}"
+                },
+                {
+                  "type": "text",
+                  "tone": "danger",
+                  "value": "{{ item.output.below ? '没到门槛' : '' }}"
+                }
+              ]
+            },
+            "error": {
+              "type": "row",
+              "action": {
+                "scrollTo": "{{ item.output.handle }}"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "tone": "danger",
+                  "value": "{{ item.output.title + '：' + item.error.message }}"
+                },
+                {
+                  "type": "button",
+                  "label": "重试",
+                  "action": {
+                    "retry": "{{ item.engine }}"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "text",
+          "tone": "muted",
+          "value": "没有点提交，检查后自己交卷"
+        }
+      ]
+    }
+  },
+  "features": [
+    {
+      "id": "quiz",
+      "name": "做题",
+      "description": "选择题问「选择」，填空题问「对话」；做完在页面上留一张结果卡片，试卷要你自己交。",
+      "icon": "list-checks",
+      "match": [
+        "*://*/*"
+      ],
+      "entries": [
+        {
+          "id": "do-quiz",
+          "name": "帮我做这页的题",
+          "settings": {
+            "engine": {
+              "type": "engine",
+              "capability": "choose",
+              "title": "选择题用哪个引擎",
+              "description": "不选就用「通用」里「选择和判断」先用的引擎。"
+            },
+            "vote": {
+              "type": "boolean",
+              "title": "多个引擎投票",
+              "default": false,
+              "description": "打开后选择题同时问几个引擎，按一致的程度算把握。"
+            },
+            "blankEngine": {
+              "type": "engine",
+              "capability": "chat",
+              "title": "填空题用哪个引擎"
+            },
+            "threshold": {
+              "type": "number",
+              "title": "多有把握才直接填",
+              "min": 0.5,
+              "max": 0.99,
+              "step": 0.01,
+              "default": 0.8,
+              "format": "percent"
+            },
+            "below": {
+              "type": "enum",
+              "title": "低于门槛时",
+              "default": "hint",
+              "options": {
+                "hint": "标出建议答案",
+                "skip": "空着不管"
+              }
+            }
+          },
+          "triggers": [
+            {
+              "on": "command",
+              "title": "帮我做这页的题",
+              "quick": true
+            }
+          ],
+          "run": [
+            {
+              "set": {
+                "rows": "{{ has(trigger.rows) ? trigger.rows.filter(r, r.state == 'ok') : [] }}"
+              }
+            },
+            {
+              "find": "auto:questions",
+              "all": true,
+              "as": "qs"
+            },
+            {
+              "if": "{{ size(vars.qs) == 0 }}",
+              "then": [
+                {
+                  "stop": true
+                }
+              ]
+            },
+            {
+              "set": {
+                "todo": "{{ vars.qs.filter(q, size(vars.rows.filter(r, r.engine == q.stem)) == 0) }}"
+              }
+            },
+            {
+              "repeat": "{{ vars.todo }}",
+              "steps": [
+                {
+                  "set": {
+                    "id": "{{ item.stem }}",
+                    "title": "{{ has(item.no) ? '第 ' + json(item.no) + ' 题' : '这一题' }}"
+                  }
+                },
+                {
+                  "set": {
+                    "rows": "{{ vars.rows + [ { 'engine': vars.id, 'engineName': '', 'state': 'error', 'output': { 'title': vars.title, 'handle': item.handle }, 'error': { 'message': '这道题没答出来' } } ] }}"
+                  }
+                },
+                {
+                  "if": "{{ item.kind == 'blank' }}",
+                  "then": [
+                    {
+                      "ask": "chat",
+                      "engine": "{{ has(settings.blankEngine) ? settings.blankEngine : '' }}",
+                      "input": {
+                        "messages": [
+                          {
+                            "role": "system",
+                            "content": "你在帮用户做一道填空题。只输出一个 JSON 对象，包含 answer（要填的答案，只写答案本身）和 confidence（0 到 1 之间的数字，表示你有多确定），不要任何解释。"
+                          },
+                          {
+                            "role": "user",
+                            "content": "{{ '题目：' + item.stem }}"
+                          }
+                        ]
+                      },
+                      "as": "ans"
+                    },
+                    {
+                      "set": {
+                        "parsed": "{{ extractJson(vars.ans.text) }}"
+                      }
+                    },
+                    {
+                      "act": "fill",
+                      "target": "{{ item.input }}",
+                      "value": "{{ vars.parsed.answer }}",
+                      "confidence": "{{ vars.parsed.confidence }}",
+                      "minConfidence": "{{ settings.threshold }}",
+                      "below": "{{ settings.below }}",
+                      "describe": "{{ vars.title + '的填空' }}"
+                    },
+                    {
+                      "set": {
+                        "rows": "{{ vars.rows.filter(r, r.engine != vars.id) + [ { 'engine': vars.id, 'engineName': '', 'state': 'ok', 'output': { 'title': vars.title, 'answer': vars.parsed.answer, 'sure': vars.parsed.confidence, 'engine': vars.ans.engine, 'below': vars.parsed.confidence < settings.threshold, 'handle': item.handle } } ] }}"
+                      }
+                    }
+                  ],
+                  "else": [
+                    {
+                      "ask": "choose",
+                      "engine": "{{ has(settings.engine) ? settings.engine : '' }}",
+                      "strategy": "{{ settings.vote ? 'vote' : 'first' }}",
+                      "input": {
+                        "state": "{{ outline(item.handle, 600) }}",
+                        "question": "{{ '选哪一项？' + item.stem }}",
+                        "options": "{{ extractJson('{' + join(item.options.map(o, json(o.id) + ':' + json(o.text)), ',') + '}') }}"
+                      },
+                      "as": "pick"
+                    },
+                    {
+                      "if": "{{ size(item.options.filter(o, o.id == vars.pick.choice)) > 0 }}",
+                      "then": [
+                        {
+                          "act": "check",
+                          "target": "{{ item.options.filter(o, o.id == vars.pick.choice)[0].handle }}",
+                          "confidence": "{{ vars.pick.confidence }}",
+                          "minConfidence": "{{ settings.threshold }}",
+                          "below": "{{ settings.below }}",
+                          "describe": "{{ vars.pick.choice }}"
+                        },
+                        {
+                          "set": {
+                            "rows": "{{ vars.rows.filter(r, r.engine != vars.id) + [ { 'engine': vars.id, 'engineName': '', 'state': 'ok', 'output': { 'title': vars.title, 'answer': vars.pick.choice + ' ' + item.options.filter(o, o.id == vars.pick.choice)[0].text, 'sure': vars.pick.confidence, 'engine': vars.pick.engine, 'below': vars.pick.confidence < settings.threshold, 'handle': item.handle } } ] }}"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "present": {
+            "surface": {
+              "type": "page-card"
+            },
+            "view": {
+              "use": "quiz-result",
+              "with": {
+                "items": "{{ vars.rows }}"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
