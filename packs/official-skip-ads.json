@@ -4,7 +4,7 @@
   "id": "official-skip-ads",
   "name": "跳过广告",
   "description": "视频或网页上新冒出来的「跳过」「关闭广告」按钮，让引擎看过之后替你点；拿不准时先问你。",
-  "version": "2026.11.17",
+  "version": "2026.11.17.1",
   "homepage": "https://github.com/scriptscat/companioncat-rules",
   "features": [
     {
@@ -109,7 +109,7 @@
                   "confidence": "{{ vars.pick.confidence }}",
                   "minConfidence": "{{ settings.threshold }}",
                   "below": "{{ settings.below }}",
-                  "describe": "{{ '「' + vars.pick.choice + '」按钮' }}"
+                  "describe": "{{ vars.pick.choice }}"
                 }
               ]
             }

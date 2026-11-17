@@ -4,7 +4,7 @@
   "id": "official-quiz",
   "name": "做题",
   "description": "帮你做这一页的选择题和填空题：把握大的直接勾选、填入，把握不够的标出建议；只做题，不提交。",
-  "version": "2026.11.17",
+  "version": "2026.11.17.1",
   "homepage": "https://github.com/scriptscat/companioncat-rules",
   "views": {
     "quiz-result": {
@@ -159,7 +159,7 @@
           "run": [
             {
               "set": {
-                "rows": "{{ has(trigger.rows) ? trigger.rows.filter(r, r.state == 'ok') : [] }}"
+                "rows": "{{ has(trigger.rows) ? trigger.rows : [] }}"
               }
             },
             {
@@ -177,7 +177,7 @@
             },
             {
               "set": {
-                "todo": "{{ vars.qs.filter(q, size(vars.rows.filter(r, r.engine == q.stem)) == 0) }}"
+                "todo": "{{ vars.qs.filter(q, has(trigger.retry) ? q.stem == trigger.retry : size(vars.rows.filter(r, r.engine == q.stem)) == 0) }}"
               }
             },
             {
@@ -191,7 +191,7 @@
                 },
                 {
                   "set": {
-                    "rows": "{{ vars.rows + [ { 'engine': vars.id, 'engineName': '', 'state': 'error', 'output': { 'title': vars.title, 'handle': item.handle }, 'error': { 'message': '这道题没答出来' } } ] }}"
+                    "rows": "{{ size(vars.rows.filter(r, r.engine == vars.id)) > 0 ? vars.rows.map(r, r.engine == vars.id ? { 'engine': vars.id, 'engineName': '', 'state': 'error', 'output': { 'title': vars.title, 'handle': item.handle }, 'error': { 'message': '这道题没答出来' } } : r) : vars.rows + [ { 'engine': vars.id, 'engineName': '', 'state': 'error', 'output': { 'title': vars.title, 'handle': item.handle }, 'error': { 'message': '这道题没答出来' } } ] }}"
                   }
                 },
                 {
@@ -230,7 +230,7 @@
                     },
                     {
                       "set": {
-                        "rows": "{{ vars.rows.filter(r, r.engine != vars.id) + [ { 'engine': vars.id, 'engineName': '', 'state': 'ok', 'output': { 'title': vars.title, 'answer': vars.parsed.answer, 'sure': vars.parsed.confidence, 'engine': vars.ans.engine, 'below': vars.parsed.confidence < settings.threshold, 'handle': item.handle } } ] }}"
+                        "rows": "{{ vars.rows.map(r, r.engine == vars.id ? { 'engine': vars.id, 'engineName': '', 'state': 'ok', 'output': { 'title': vars.title, 'answer': vars.parsed.answer, 'sure': vars.parsed.confidence, 'engine': vars.ans.engine, 'below': vars.parsed.confidence < settings.threshold, 'handle': item.handle } } : r) }}"
                       }
                     }
                   ],
@@ -242,16 +242,16 @@
                       "input": {
                         "state": "{{ outline(item.handle, 600) }}",
                         "question": "{{ '选哪一项？' + item.stem }}",
-                        "options": "{{ extractJson('{' + join(item.options.map(o, json(o.id) + ':' + json(o.text)), ',') + '}') }}"
+                        "options": "{{ extractJson('{' + join(item.choices.map(c, json(c.id) + ':' + json(c.text)), ',') + '}') }}"
                       },
                       "as": "pick"
                     },
                     {
-                      "if": "{{ size(item.options.filter(o, o.id == vars.pick.choice)) > 0 }}",
+                      "if": "{{ size(item.choices.filter(c, c.id == vars.pick.choice)) > 0 }}",
                       "then": [
                         {
                           "act": "check",
-                          "target": "{{ item.options.filter(o, o.id == vars.pick.choice)[0].handle }}",
+                          "target": "{{ item.choices.filter(c, c.id == vars.pick.choice)[0].handles }}",
                           "confidence": "{{ vars.pick.confidence }}",
                           "minConfidence": "{{ settings.threshold }}",
                           "below": "{{ settings.below }}",
@@ -259,7 +259,7 @@
                         },
                         {
                           "set": {
-                            "rows": "{{ vars.rows.filter(r, r.engine != vars.id) + [ { 'engine': vars.id, 'engineName': '', 'state': 'ok', 'output': { 'title': vars.title, 'answer': vars.pick.choice + ' ' + item.options.filter(o, o.id == vars.pick.choice)[0].text, 'sure': vars.pick.confidence, 'engine': vars.pick.engine, 'below': vars.pick.confidence < settings.threshold, 'handle': item.handle } } ] }}"
+                            "rows": "{{ vars.rows.map(r, r.engine == vars.id ? { 'engine': vars.id, 'engineName': '', 'state': 'ok', 'output': { 'title': vars.title, 'answer': vars.pick.choice + ' ' + item.choices.filter(c, c.id == vars.pick.choice)[0].text, 'sure': vars.pick.confidence, 'engine': vars.pick.engine, 'below': vars.pick.confidence < settings.threshold, 'handle': item.handle } } : r) }}"
                           }
                         }
                       ]
