@@ -15,6 +15,13 @@ const VARIABLES = new Set([
   'settings', 'vars', 'input', 'secret', 'options', 'selection', 'page', 'site',
   'steps', 'response', 'stream', 'result', 'item', 'params', 'value'
 ])
+// Round 2 R1.4: only an automation entry's triggers and run may read the page, through
+// these functions and the `trigger` variable. Everywhere else they are errors.
+const PAGE_FUNCTIONS = new Set(['text', 'attr', 'describe', 'outline', 'closest', 'within', 'visible'])
+const PAGE_VARIABLES = new Set(['trigger'])
+// An entry is an automation entry when its run has one of these steps (as in the schema).
+const AUTOMATION_STEPS = ['find', 'act', 'ask', 'if', 'repeat', 'stop']
+const ONLY_AUTOMATION = "can only be used in an automation entry's triggers and run"
 // CEL's built-in type names, usable as values: type(x) == map.
 const TYPE_NAMES = new Set(['bool', 'int', 'uint', 'double', 'string', 'bytes', 'list', 'map', 'null_type', 'type'])
 // CEL macros whose first argument binds an iteration variable.
@@ -85,36 +92,47 @@ function isFieldPath (node) {
 }
 
 // Collects identifiers that are not R8.3 variables (macro iteration variables are
-// bound inside their macro) and malformed has() calls.
-function findProblems (node, bound, out) {
+// bound inside their macro), calls outside the whitelist and malformed has() calls.
+// `page` is true inside an automation entry's triggers and run.
+function findProblems (node, bound, out, page) {
   if (!node || typeof node !== 'object') return
   if (Array.isArray(node)) {
-    for (const n of node) findProblems(n, bound, out)
+    for (const n of node) findProblems(n, bound, out, page)
     return
   }
   if (!node.op) return
   if (node.op === 'id') {
-    if (!bound.has(node.args) && !VARIABLES.has(node.args) && !TYPE_NAMES.has(node.args)) {
-      out.push({ message: `unknown variable "${node.args}" (allowed: ${[...VARIABLES].join(', ')})`, pos: node.pos })
-    }
+    const name = node.args
+    if (bound.has(name) || VARIABLES.has(name) || TYPE_NAMES.has(name) || (page && PAGE_VARIABLES.has(name))) return
+    out.push({
+      message: PAGE_VARIABLES.has(name)
+        ? `variable "${name}" ${ONLY_AUTOMATION}`
+        : `unknown variable "${name}" (allowed: ${[...VARIABLES].join(', ')})`,
+      pos: node.pos
+    })
     return
   }
-  if ((node.op === 'call' || node.op === 'rcall') && !FUNCTIONS.has(node.args[0]) && !MACROS.has(node.args[0])) {
-    out.push({ message: `function ${node.args[0]}() is not in the R8.1 whitelist`, pos: node.pos })
+  if (node.op === 'call' || node.op === 'rcall') {
+    const name = node.args[0]
+    if (PAGE_FUNCTIONS.has(name) && !page) {
+      out.push({ message: `function ${name}() ${ONLY_AUTOMATION}`, pos: node.pos })
+    } else if (!FUNCTIONS.has(name) && !MACROS.has(name) && !PAGE_FUNCTIONS.has(name)) {
+      out.push({ message: `function ${name}() is not in the R8.1 whitelist`, pos: node.pos })
+    }
   }
   if (node.op === 'call' && node.args[0] === 'has' && !isFieldPath(node.args[1]?.[0])) {
     out.push({ message: 'has() needs a field path such as has(input.from)', pos: node.pos })
   }
   if (node.op === 'rcall' && MACROS.has(node.args[0]) && node.args[2]?.[0]?.op === 'id') {
     const [, receiver, [iter, ...body]] = node.args
-    findProblems(receiver, bound, out)
-    findProblems(body, new Set([...bound, iter.args]), out)
+    findProblems(receiver, bound, out, page)
+    findProblems(body, new Set([...bound, iter.args]), out, page)
     return
   }
-  findProblems(node.args, bound, out)
+  findProblems(node.args, bound, out, page)
 }
 
-function checkExpression (source) {
+function checkExpression (source, page) {
   let ast
   try {
     ast = cel.parse(source).ast
@@ -122,8 +140,29 @@ function checkExpression (source) {
     return { message: err.message.split('\n')[0], pos: err.node?.pos ?? 0 }
   }
   const problems = []
-  findProblems(ast, new Set(), problems)
+  findProblems(ast, new Set(), problems, page)
   return problems[0] ?? null
+}
+
+const pointerOf = (...parts) => parts.map((p) => `/${String(p).replaceAll('~', '~0').replaceAll('/', '~1')}`).join('')
+
+export function isAutomationEntry (entry) {
+  return Array.isArray(entry?.run) &&
+    entry.run.some((step) => step && typeof step === 'object' && AUTOMATION_STEPS.some((k) => k in step))
+}
+
+// JSON pointers under which the page functions are allowed: each automation entry's triggers and run.
+function pagePointers (pack) {
+  const out = []
+  const features = Array.isArray(pack?.features) ? pack.features : []
+  features.forEach((feature, f) => {
+    const entries = Array.isArray(feature?.entries) ? feature.entries : []
+    entries.forEach((entry, e) => {
+      if (!isAutomationEntry(entry)) return
+      for (const field of ['triggers', 'run']) out.push(pointerOf('features', f, 'entries', e, field))
+    })
+  })
+  return out
 }
 
 function * strings (value, pointer = '') {
@@ -132,9 +171,7 @@ function * strings (value, pointer = '') {
   } else if (Array.isArray(value)) {
     for (let i = 0; i < value.length; i++) yield * strings(value[i], `${pointer}/${i}`)
   } else if (value && typeof value === 'object') {
-    for (const [k, v] of Object.entries(value)) {
-      yield * strings(v, `${pointer}/${k.replaceAll('~', '~0').replaceAll('/', '~1')}`)
-    }
+    for (const [k, v] of Object.entries(value)) yield * strings(v, pointer + pointerOf(k))
   }
 }
 
@@ -173,13 +210,15 @@ export function checkPack (text) {
   const problems = []
   const result = validator.validate(pack)
   if (!result.valid) problems.push(...leafErrors(result.errors))
+  const pageAt = pagePointers(pack)
   for (const [pointer, value] of strings(pack)) {
+    const page = pageAt.some((p) => pointer === p || pointer.startsWith(p + '/'))
     for (const t of scanTemplates(value)) {
       if (t.error) {
         problems.push({ path: pointer, message: `${t.error} in ${JSON.stringify(value)}` })
         continue
       }
-      const bad = checkExpression(t.source)
+      const bad = checkExpression(t.source, page)
       if (bad) {
         problems.push({
           path: pointer,

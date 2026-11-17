@@ -156,3 +156,31 @@ test('malformed automation shapes fail with the field path', async () => {
     assert.ok(problems.some((p) => p.path === pointer), `${pointer}: ${JSON.stringify(problems)}`)
   }
 })
+
+test('page functions and trigger are accepted in an automation entry\'s triggers and run', async () => {
+  const { checkPack } = await import('./check.mjs')
+  const pack = JSON.parse(readFileSync(path.join(root, fixture('valid-automation.json')), 'utf8'))
+  const skip = pack.features[0].entries[0]
+  skip.triggers[0].enabled = '{{ visible(trigger.element) }}'
+  skip.run[0].where = "{{ contains(text(item), '跳过') && attr(item, 'role') != 'x' }}"
+  skip.run[2].input.question = "{{ describe(vars.candidates[0]) + outline(closest(trigger.element, 'div'), 300) }}"
+  skip.run[0].within = "{{ within(trigger.element, '.player')[0] }}"
+  assert.deepEqual(checkPack(JSON.stringify(pack)), [])
+})
+
+test('page functions and trigger anywhere else fail with the field path', async () => {
+  const { checkPack } = await import('./check.mjs')
+  const pack = JSON.parse(readFileSync(path.join(root, fixture('valid-automation.json')), 'utf8'))
+  const [, , solve, page] = pack.features[0].entries
+  page.run[0].input.to = '{{ text(vars.x) }}'
+  page.triggers[1].enabled = '{{ trigger.on == "page-load" }}'
+  solve.present.view.with.items = '{{ within(vars.q, "li") }}'
+  pack.features[0].settings.below.default = '{{ visible(vars.x) }}'
+  const problems = checkPack(JSON.stringify(pack))
+  const at = (pointer) => problems.find((p) => p.path === pointer)?.message ?? ''
+  assert.match(at('/features/0/entries/3/run/0/input/to'), /text\(\) can only be used in an automation entry's triggers and run/)
+  assert.match(at('/features/0/entries/3/triggers/1/enabled'), /"trigger" can only be used in an automation entry's triggers and run/)
+  assert.match(at('/features/0/entries/2/present/view/with/items'), /within\(\) can only be used/)
+  assert.match(at('/features/0/settings/below/default'), /visible\(\) can only be used/)
+  assert.equal(problems.length, 4, JSON.stringify(problems))
+})
